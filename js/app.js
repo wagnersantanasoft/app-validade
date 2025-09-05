@@ -1,15 +1,11 @@
 /**
- * app.js (atualizado)
- * - Removido botão de "Permitir Câmera"
- * - Permissão solicitada automaticamente ao clicar em "Ler Código"
- * - Se o usuário negar, mostra aviso e não abre o overlay
+ * app.js - integra UI, filtros, CRUD e scanner (Quagga simples).
  */
-
 import { auth } from "./auth.js";
 import { productsService } from "./products.js";
 import { api } from "./api.js";
-import { scanner } from "./scanner.js";
 import { toggleTheme } from "./theme.js";
+import { simpleScanner } from "./scanner.js";
 
 const els = {
   loginView: document.getElementById("login-view"),
@@ -23,6 +19,7 @@ const els = {
   refreshBtn: document.getElementById("refresh-btn"),
   logoutBtn: document.getElementById("logout-btn"),
   groupFilter: document.getElementById("group-filter"),
+  brandFilter: document.getElementById("brand-filter"),
   searchFilter: document.getElementById("search-filter"),
   thresholdDays: document.getElementById("threshold-days"),
   showRemoved: document.getElementById("show-removed"),
@@ -34,13 +31,15 @@ const els = {
   tableView: document.getElementById("table-view"),
   cardsView: document.getElementById("cards-view"),
 
+  // Scanner
   scanBtn: document.getElementById("scan-btn"),
   scannerOverlay: document.getElementById("scanner-overlay"),
   closeScanner: document.getElementById("close-scanner"),
   scannerStatus: document.getElementById("scanner-status"),
-  toggleTorch: document.getElementById("toggle-torch"),
-  switchCamera: document.getElementById("switch-camera"),
+  manualBarcode: document.getElementById("manual-barcode"),
+  applyBarcode: document.getElementById("apply-barcode"),
 
+  // Tema e produtos
   themeToggle: document.getElementById("theme-toggle"),
   addProductBtn: document.getElementById("add-product-btn"),
   productModal: document.getElementById("product-modal"),
@@ -56,26 +55,22 @@ let currentStatusFilter = "all";
 let usingCards = false;
 let editingRowId = null;
 
-// Armazena se já falhou uma vez (para não mostrar múltiplos toasts repetidamente)
-let lastCameraError = null;
-
 init();
 
 function init() {
   bindEvents();
-  if (auth.isAuthenticated()) {
-    enterApp();
-  } else {
-    showLogin();
-  }
+  if (auth.isAuthenticated()) enterApp();
+  else showLogin();
 }
 
+/* Eventos */
 function bindEvents() {
   els.loginForm.addEventListener("submit", onLoginSubmit);
   els.logoutBtn.addEventListener("click", () => { auth.logout(); showLogin(); });
   els.refreshBtn.addEventListener("click", () => loadAndRender(true));
 
   els.groupFilter.addEventListener("change", renderProducts);
+  els.brandFilter.addEventListener("change", renderProducts);
   els.searchFilter.addEventListener("input", debounce(renderProducts, 250));
   els.thresholdDays.addEventListener("change", renderProducts);
   els.showRemoved.addEventListener("change", renderProducts);
@@ -89,40 +84,47 @@ function bindEvents() {
     });
   });
 
-  // Scanner — agora pedimos permissão internamente
-  els.scanBtn.addEventListener("click", async () => {
-    await attemptOpenScanner();
-  });
-
+  // Scanner
+  els.scanBtn.addEventListener("click", openScanner);
   els.closeScanner.addEventListener("click", closeScanner);
-  scanner.onResult(code => {
-    els.searchFilter.value = code;
-    closeScanner();
-    renderProducts();
-  });
-  scanner.onStatus(msg => els.scannerStatus.textContent = msg);
-  scanner.onTorchAvailability(avail => els.toggleTorch.hidden = !avail);
-  scanner.onMultipleCameras(hasMulti => els.switchCamera.hidden = !hasMulti);
-  els.toggleTorch.addEventListener("click", () => scanner.toggleTorch());
-  els.switchCamera.addEventListener("click", () => scanner.switchCamera());
-
-  document.addEventListener("keydown", e => {
-    if (e.key === "Escape") {
-      if (!els.scannerOverlay.classList.contains("hidden")) closeScanner();
-      if (!els.productModal.classList.contains("hidden")) closeProductModal();
+  els.applyBarcode.addEventListener("click", () => {
+    const val = els.manualBarcode.value.trim();
+    if (val) {
+      els.searchFilter.value = val;
+      closeScanner();
+      renderProducts();
     }
+  });
+
+  simpleScanner.onStatus(msg => {
+    if (els.scannerStatus) els.scannerStatus.textContent = msg;
+  });
+  simpleScanner.onError(err => {
+    toast("Erro câmera: " + (err.message || err), true);
+    closeScanner();
+  });
+  simpleScanner.onDetected(code => {
+    els.searchFilter.value = code;
+    // Se modal de novo produto estiver aberto, também preenche
+    const formBarcode = document.getElementById("p-barcode");
+    if (formBarcode && !els.productModal.classList.contains("hidden")) {
+      formBarcode.value = code;
+    }
+    toast("Código detectado: " + code);
+    renderProducts();
+    closeScanner();
   });
 
   // Tema
   els.themeToggle.addEventListener("click", () => toggleTheme());
 
-  // Modal Produto
+  // Modal
   els.addProductBtn.addEventListener("click", openProductModal);
   els.closeModal.addEventListener("click", closeProductModal);
   els.cancelModal.addEventListener("click", closeProductModal);
   els.productForm.addEventListener("submit", onProductSubmit);
 
-  // Alternar visualização
+  // View
   els.toggleViewBtn.addEventListener("click", () => {
     usingCards = !usingCards;
     applyViewMode();
@@ -138,71 +140,33 @@ function bindEvents() {
       renderProducts();
     }
   }, 250));
+
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      if (!els.scannerOverlay.classList.contains("hidden")) closeScanner();
+      if (!els.productModal.classList.contains("hidden")) closeProductModal();
+    }
+  });
 }
 
-/**
- * Tenta abrir o scanner. Se a permissão ainda não foi concedida,
- * o próprio getUserMedia dentro do scanner irá disparar a prompt.
- * Se der erro (negado ou bloqueado), exibimos orientação.
- */
-async function attemptOpenScanner() {
-  // Mostramos overlay imediatamente para feedback
+/* Scanner */
+async function openScanner() {
   els.scannerOverlay.classList.remove("hidden");
-  els.scannerStatus.textContent = "Solicitando acesso à câmera...";
+  els.manualBarcode.value = "";
+  els.scannerStatus.textContent = "Inicializando...";
   try {
-    // O scanner.start() já chama getUserMedia internamente
-    await scanner.start();
+    await simpleScanner.start();
   } catch (err) {
-    // Segurança extra (caso start lance)
-    handleCameraError(err);
+    toast("Não foi possível iniciar a câmera.", true);
     closeScanner();
   }
-  // Caso o usuário negue, scanner.start() internamente define status de erro; tratamos via observer de status também
+}
+function closeScanner() {
+  simpleScanner.stop();
+  els.scannerOverlay.classList.add("hidden");
 }
 
-/* Feedback de erro de câmera */
-function handleCameraError(err) {
-  if (err?.name === "NotAllowedError" || err?.name === "SecurityError") {
-    showToast("Acesso à câmera negado. Verifique as permissões do navegador.", true);
-  } else {
-    showToast("Não foi possível acessar a câmera.", true);
-  }
-  lastCameraError = err;
-}
-
-function showToast(msg, error = false) {
-  const div = document.createElement("div");
-  div.textContent = msg;
-  div.style.position = "fixed";
-  div.style.bottom = "16px";
-  div.style.left = "50%";
-  div.style.transform = "translateX(-50%)";
-  div.style.background = error ? "#b3261e" : "#2563eb";
-  div.style.color = "#fff";
-  div.style.padding = "8px 14px";
-  div.style.fontSize = "12px";
-  div.style.borderRadius = "6px";
-  div.style.boxShadow = "0 4px 12px -4px rgba(0,0,0,.4)";
-  div.style.zIndex = 3000;
-  document.body.appendChild(div);
-  setTimeout(() => div.remove(), 2800);
-}
-
-function applyViewMode() {
-  if (usingCards) {
-    els.tableView.classList.add("hidden");
-    els.cardsView.classList.remove("hidden");
-    els.toggleViewBtn.textContent = "📋";
-    els.toggleViewBtn.title = "Modo tabela";
-  } else {
-    els.tableView.classList.remove("hidden");
-    els.cardsView.classList.add("hidden");
-    els.toggleViewBtn.textContent = "🗂";
-    els.toggleViewBtn.title = "Modo cartões";
-  }
-}
-
-/* ========== Login ========== */
+/* Login */
 async function onLoginSubmit(e) {
   e.preventDefault();
   const username = els.username.value.trim();
@@ -219,56 +183,59 @@ async function onLoginSubmit(e) {
     setFormDisabled(false);
   }
 }
-
 function setFormDisabled(disabled) {
   [...els.loginForm.elements].forEach(el => el.disabled = disabled);
 }
-
 function showLogin() {
   els.loginView.classList.add("active");
   els.dashboardView.classList.remove("active");
   els.loginForm.reset();
   els.username.focus();
 }
-
 function enterApp() {
   els.loginView.classList.remove("active");
   els.dashboardView.classList.add("active");
-  const session = auth.getSession();
-  els.userBadge.textContent = session?.user?.name || session?.user?.username || "?";
+  const s = auth.getSession();
+  els.userBadge.textContent = s?.user?.name || s?.user?.username || "?";
   loadAndRender(true);
 }
 
-/* ========== Carregamento e Renderização ========== */
+/* Carregamento / Render */
 async function loadAndRender(force = false) {
   setTableLoading();
   try {
     const products = await productsService.load(force);
-    populateGroupFilter(products);
+    populateFilters(products);
     renderProducts();
   } catch (err) {
     setTableError(err.message || "Erro ao carregar produtos");
   }
 }
-
-function populateGroupFilter(products) {
+function populateFilters(products) {
+  // Grupos
   const groups = [...new Set(products.map(p => p.group))].sort();
-  const current = els.groupFilter.value;
+  const gCurrent = els.groupFilter.value;
   els.groupFilter.innerHTML = "<option value=''>Todos</option>" +
     groups.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
-  if (groups.includes(current)) els.groupFilter.value = current;
-}
+  if (groups.includes(gCurrent)) els.groupFilter.value = gCurrent;
 
+  // Marcas
+  const brands = [...new Set(products.map(p => p.brand))].sort();
+  const bCurrent = els.brandFilter.value;
+  els.brandFilter.innerHTML = "<option value=''>Todas</option>" +
+    brands.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join("");
+  if (brands.includes(bCurrent)) els.brandFilter.value = bCurrent;
+}
 function getFilterOptions() {
   return {
     group: els.groupFilter.value,
+    brand: els.brandFilter.value,
     search: els.searchFilter.value.trim(),
     status: currentStatusFilter,
     thresholdDays: parseInt(els.thresholdDays.value, 10) || 15,
     showRemoved: els.showRemoved.checked
   };
 }
-
 function renderProducts() {
   const products = productsService.cache.products;
   if (!products.length) {
@@ -278,48 +245,45 @@ function renderProducts() {
   const opts = getFilterOptions();
   const filtered = productsService
     .filter(products, opts)
-    .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
+    .sort((a,b) => a.expiryDate.localeCompare(b.expiryDate));
 
-  if (usingCards) {
-    renderCards(filtered, opts);
-  } else {
-    renderTable(filtered, opts);
-  }
+  if (usingCards) renderCards(filtered, opts);
+  else renderTable(filtered, opts);
 }
 
+/* Tabela */
 function renderTable(filtered, opts) {
   if (!filtered.length) {
-    els.tbody.innerHTML = `<tr><td colspan="8" class="center muted">Nenhum produto encontrado.</td></tr>`;
+    els.tbody.innerHTML = `<tr><td colspan="9" class="center muted">Nenhum produto encontrado.</td></tr>`;
     return;
   }
   const frag = document.createDocumentFragment();
-  filtered.forEach(product => {
-    const { days, status } = productsService.computeStatus(product, opts.thresholdDays);
-    frag.appendChild(renderRow(product, days, status));
+  filtered.forEach(p => {
+    const { days, status } = productsService.computeStatus(p, opts.thresholdDays);
+    frag.appendChild(renderRow(p, days, status));
   });
   els.tbody.innerHTML = "";
   els.tbody.appendChild(frag);
 }
-
 function renderRow(product, days, status) {
-  const clone = els.rowTemplate.content.firstElementChild.cloneNode(true);
-  clone.querySelector(".col-code").textContent = product.code;
-  clone.querySelector(".col-barcode").textContent = product.barcode || "-";
-  clone.querySelector(".col-name").textContent = product.name;
-  clone.querySelector(".col-group").textContent = product.group;
+  const tr = els.rowTemplate.content.firstElementChild.cloneNode(true);
+  tr.querySelector(".col-code").textContent = product.code;
+  tr.querySelector(".col-barcode").textContent = product.barcode || "-";
+  tr.querySelector(".col-name").textContent = product.name;
+  tr.querySelector(".col-group").textContent = product.group;
+  tr.querySelector(".col-brand").textContent = product.brand;
 
-  const expiryCell = clone.querySelector(".col-expiry");
+  const expiryCell = tr.querySelector(".col-expiry");
   expiryCell.textContent = formatDateBR(product.expiryDate);
 
-  const daysCell = clone.querySelector(".col-days");
+  const daysCell = tr.querySelector(".col-days");
   daysCell.textContent = days;
   if (days < 0) daysCell.classList.add("negative");
   else if (days <= parseInt(els.thresholdDays.value, 10)) daysCell.classList.add("warning");
 
-  const statusCell = clone.querySelector(".col-status");
-  statusCell.appendChild(buildBadge(status));
+  tr.querySelector(".col-status").appendChild(buildBadge(status));
 
-  const actionCell = clone.querySelector(".col-action");
+  const actionCell = tr.querySelector(".col-action");
   actionCell.appendChild(buildEditButton(product, expiryCell));
   if (status === "expired" && !product.removed) {
     actionCell.appendChild(buildRemoveButton(product.id));
@@ -329,9 +293,9 @@ function renderRow(product, days, status) {
     span.style.fontSize = ".55rem";
     span.textContent = "Removido";
     actionCell.appendChild(span);
-    clone.style.opacity = .55;
+    tr.style.opacity = .55;
   }
-  return clone;
+  return tr;
 }
 
 /* Cards */
@@ -341,23 +305,22 @@ function renderCards(filtered, opts) {
     return;
   }
   const frag = document.createDocumentFragment();
-  filtered.forEach(product => {
-    const { days, status } = productsService.computeStatus(product, opts.thresholdDays);
-    frag.appendChild(renderCard(product, days, status));
+  filtered.forEach(p => {
+    const { days, status } = productsService.computeStatus(p, opts.thresholdDays);
+    frag.appendChild(renderCard(p, days, status));
   });
   els.cardsContainer.innerHTML = "";
   els.cardsContainer.appendChild(frag);
 }
-
 function renderCard(product, days, status) {
   const card = els.cardTemplate.content.firstElementChild.cloneNode(true);
   card.querySelector(".pc-code").textContent = product.code;
   card.querySelector(".pc-status").appendChild(buildBadge(status));
   card.querySelector(".pc-name").textContent = product.name;
   card.querySelector(".pc-group").textContent = product.group;
+  card.querySelector(".pc-brand").textContent = product.brand;
   card.querySelector(".pc-barcode").textContent = product.barcode || "-";
   card.querySelector(".pc-expiry").textContent = formatDateBR(product.expiryDate);
-
   const daysEl = card.querySelector(".pc-days");
   daysEl.textContent = days;
   if (days < 0) daysEl.style.color = "#ff6d6d";
@@ -377,42 +340,37 @@ function renderCard(product, days, status) {
   return card;
 }
 
-/* Edição de validade inline */
+/* Edição validade */
 function buildEditButton(product, expiryDisplayEl, compact = false) {
   const btn = document.createElement("button");
   btn.className = "btn " + (compact ? "small" : "small");
   btn.textContent = "Editar";
-  btn.title = "Alterar validade";
-  btn.addEventListener("click", () => startInlineEdit(product, expiryDisplayEl, btn));
+  btn.addEventListener("click", () => startInlineEdit(product, expiryDisplayEl));
   return btn;
 }
-
 function startInlineEdit(product, expiryDisplayEl) {
   if (editingRowId && editingRowId !== product.id) return;
   if (editingRowId === product.id) return;
   editingRowId = product.id;
 
   const original = product.expiryDate;
-  const wrapper = document.createElement("div");
-  wrapper.className = "edit-inline";
-
+  const wrap = document.createElement("div");
+  wrap.className = "edit-inline";
   const input = document.createElement("input");
   input.type = "date";
   input.value = original;
-
   const save = document.createElement("button");
   save.className = "btn small primary";
   save.textContent = "OK";
-
   const cancel = document.createElement("button");
   cancel.className = "btn small";
   cancel.textContent = "X";
 
   expiryDisplayEl.innerHTML = "";
-  wrapper.appendChild(input);
-  wrapper.appendChild(save);
-  wrapper.appendChild(cancel);
-  expiryDisplayEl.appendChild(wrapper);
+  wrap.appendChild(input);
+  wrap.appendChild(save);
+  wrap.appendChild(cancel);
+  expiryDisplayEl.appendChild(wrap);
   input.focus();
 
   save.addEventListener("click", async () => {
@@ -430,14 +388,13 @@ function startInlineEdit(product, expiryDisplayEl) {
       save.disabled = false;
     }
   });
-
   cancel.addEventListener("click", () => {
     editingRowId = null;
     expiryDisplayEl.textContent = formatDateBR(original);
   });
 }
 
-/* Remover (marcar) */
+/* Remover */
 function buildRemoveButton(id, compact = false) {
   const btn = document.createElement("button");
   btn.className = "btn danger " + (compact ? "small" : "small");
@@ -445,7 +402,6 @@ function buildRemoveButton(id, compact = false) {
   btn.addEventListener("click", () => onRemove(id, btn));
   return btn;
 }
-
 async function onRemove(id, btn) {
   btn.disabled = true;
   try {
@@ -467,23 +423,20 @@ function openProductModal() {
   els.productModal.classList.remove("hidden");
   document.getElementById("p-code").focus();
 }
-
-function closeProductModal() {
-  els.productModal.classList.add("hidden");
-}
-
+function closeProductModal() { els.productModal.classList.add("hidden"); }
 async function onProductSubmit(e) {
   e.preventDefault();
   els.productError.hidden = true;
-  const formData = new FormData(els.productForm);
+  const fd = new FormData(els.productForm);
   const payload = {
-    code: formData.get("code").trim(),
-    barcode: formData.get("barcode").trim(),
-    name: formData.get("name").trim(),
-    group: formData.get("group").trim(),
-    expiryDate: formData.get("expiryDate")
+    code: fd.get("code").trim(),
+    barcode: fd.get("barcode").trim(),
+    name: fd.get("name").trim(),
+    group: fd.get("group").trim(),
+    brand: fd.get("brand").trim(),
+    expiryDate: fd.get("expiryDate")
   };
-  if (!payload.code || !payload.name || !payload.group || !payload.expiryDate) {
+  if (!payload.code || !payload.name || !payload.group || !payload.brand || !payload.expiryDate) {
     showProductError("Preencha todos os campos obrigatórios.");
     return;
   }
@@ -492,7 +445,7 @@ async function onProductSubmit(e) {
     const prod = await api.addProduct(payload, auth.getToken());
     productsService.addLocal(prod);
     closeProductModal();
-    populateGroupFilter(productsService.cache.products);
+    populateFilters(productsService.cache.products);
     renderProducts();
   } catch (err) {
     showProductError(err.message || "Erro ao adicionar produto");
@@ -500,17 +453,15 @@ async function onProductSubmit(e) {
     setProductFormDisabled(false);
   }
 }
-
 function showProductError(msg) {
   els.productError.textContent = msg;
   els.productError.hidden = false;
 }
-
 function setProductFormDisabled(disabled) {
   [...els.productForm.elements].forEach(el => el.disabled = disabled);
 }
 
-/* Utilidades UI */
+/* Utils */
 function buildBadge(status) {
   const span = document.createElement("span");
   span.classList.add("badge");
@@ -523,44 +474,53 @@ function buildBadge(status) {
   }
   return span;
 }
-
 function setTableLoading() {
-  els.tbody.innerHTML = `<tr><td colspan="8" class="center muted">Carregando...</td></tr>`;
+  els.tbody.innerHTML = `<tr><td colspan="9" class="center muted">Carregando...</td></tr>`;
   els.cardsContainer.innerHTML = "";
 }
-
 function setTableError(msg) {
-  els.tbody.innerHTML = `<tr><td colspan="8" class="center" style="color:#ff9e9e;">Erro: ${escapeHtml(msg)}</td></tr>`;
+  els.tbody.innerHTML = `<tr><td colspan="9" class="center" style="color:#ff9e9e;">Erro: ${escapeHtml(msg)}</td></tr>`;
   els.cardsContainer.innerHTML = `<div style="color:#ff6d6d;">Erro: ${escapeHtml(msg)}</div>`;
 }
-
 function setTableEmpty() {
-  els.tbody.innerHTML = `<tr><td colspan="8" class="center muted">Nenhum produto.</td></tr>`;
+  els.tbody.innerHTML = `<tr><td colspan="9" class="center muted">Nenhum produto.</td></tr>`;
   els.cardsContainer.innerHTML = `<div class="muted">Nenhum produto.</div>`;
 }
-
 function formatDateBR(iso) {
   if (!iso) return "-";
-  const [y, m, d] = iso.split("-");
+  const [y,m,d] = iso.split("-");
   return `${d}/${m}/${y}`;
 }
-
 function escapeHtml(str) {
   return str.replace(/[&<>"']/g, c => ({
     "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
   }[c]));
 }
-
-function debounce(fn, wait = 300) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
+function debounce(fn, wait=300) {
+  let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), wait); };
 }
-
-/* Scanner Overlay */
-function openScanner() {
-  els.scannerOverlay.classList.remove("hidden");
+function applyViewMode() {
+  if (usingCards) {
+    els.tableView.classList.add("hidden");
+    els.cardsView.classList.remove("hidden");
+    els.toggleViewBtn.textContent = "📋";
+    els.toggleViewBtn.title = "Modo tabela";
+  } else {
+    els.tableView.classList.remove("hidden");
+    els.cardsView.classList.add("hidden");
+    els.toggleViewBtn.textContent = "🗂";
+    els.toggleViewBtn.title = "Modo cartões";
+  }
 }
-function closeScanner() {
-  scanner.stop();
-  els.scannerOverlay.classList.add("hidden");
+function toast(msg, error=false) {
+  const div = document.createElement("div");
+  div.textContent = msg;
+  Object.assign(div.style, {
+    position:"fixed",bottom:"16px",left:"50%",transform:"translateX(-50%)",
+    background: error ? "#b3261e" : "#2563eb",
+    color:"#fff",padding:"8px 14px",fontSize:"12px",
+    borderRadius:"6px",boxShadow:"0 4px 12px -4px rgba(0,0,0,.4)",zIndex:3000
+  });
+  document.body.appendChild(div);
+  setTimeout(()=>div.remove(),2600);
 }

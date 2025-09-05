@@ -1,15 +1,16 @@
-# Sistema de Controle de Validade (Frontend)
+# Controle de Validade de Produtos
 
-Agora com:
-- Modo claro/escuro (toggle 🌓 persistido em `localStorage`)
-- Layout responsivo (tabela + modo cartões automático em telas estreitas, botão para alternar)
-- Leitura de código de barras (BarcodeDetector / QuaggaJS)
+Sistema frontend completo (HTML, CSS, JS puro) com:
+- Autenticação (mock)
+- Tema claro/escuro
+- Listagem de produtos (Grupo, Marca, Código de Barras, Validade)
+- Filtros: Grupo, Marca, Busca (nome / código / código de barras), Status (Todos / Próximo / Vencidos), Mostrar removidos
+- Parâmetro de dias para "Próximo de Vencer"
+- Edição inline da validade
 - Inclusão de novos produtos (modal)
-- Edição inline de validade (coluna Validade -> botão “Editar”)
-- Remoção (marca localmente)
-- Filtros (grupo, busca, status, dias próximos)
-- Persistência de sessão via localStorage
-- Mock API expandida com `addProduct`, `updateProduct`, `removeProduct`
+- Remoção (marca como removido)
+- Visualização Tabela / Cartões (toggle)
+- Scanner de código de barras usando apenas Quagga (detecta EAN/UPC e preenche busca)
 
 ## Estrutura
 
@@ -20,109 +21,86 @@ js/
   api.js
   auth.js
   products.js
-  app.js
-  scanner.js
   theme.js
+  scanner.js
+  app.js
 README.md
 ```
 
-## Endpoints Esperados (API Real)
+## Como Executar
 
-Ajuste `BASE_URL` em `js/api.js` e implemente:
+1. Baixe/clonar os arquivos.
+2. **Importante**: Sirva via servidor local (não abra file://):
+   - `npx http-server` (ou)
+   - `npx live-server` (ou)
+   - qualquer servidor simples em Node / Python.
+3. Abra `http://localhost:8080` (ou porta correspondente).
+4. Login:
+   - Usuário: `admin`
+   - Senha: `admin123`
 
-- `POST /auth/login`
-  Body: `{ "username": "...", "password": "..." }`
-  Resposta: `{ "token": "...", "user": {"id":1,"name":"...","username":"..."} }`
+## Scanner (Quagga)
 
-- `GET /products`
-  Retorna lista:
-  ```json
-  [
-    {
-      "id": 101,
-      "code": "L001",
-      "barcode": "7891000000001",
-      "name": "Leite Integral 1L",
-      "group": "Laticínios",
-      "expiryDate": "2025-09-20",
-      "removed": false
-    }
-  ]
-  ```
+- Botão “🔍 Ler Código” abre um overlay.
+- Ao detectar um código EAN/UPC: preenche o campo de busca e fecha o overlay.
+- Campo manual disponível caso a leitura falhe.
+- Caso deseje continuar lendo vários códigos (modo contínuo), remova `stop()` dentro do evento de detecção em `scanner.js`.
 
-- `POST /products`
-  Body:
-  ```json
-  {
-    "code": "X001",
-    "barcode": "789...",
-    "name": "Produto",
-    "group": "Grupo",
-    "expiryDate": "2025-10-01"
-  }
-  ```
-  Resposta: objeto com `id`.
+### Ajustes Possíveis
 
-- `PATCH /products/:id`
-  Body parcial, ex:
-  ```json
-  { "expiryDate": "2025-11-01" }
-  ```
+- Adicionar mais formatos (Code 128, etc.) em `decoder.readers`.
+- Manter o scanner aberto para múltiplas leituras.
+- Enviar imagem/frame para backend analisar (não implementado).
 
-- `POST /products/:id/remove`
-  Marca `removed=true`.
+## Integração com API Real
 
-## Regras de Status
+Defina `BASE_URL` em `js/api.js` e implemente endpoints:
 
-| Status    | Condição                                        |
-|-----------|-------------------------------------------------|
-| removed   | produto.removed === true                        |
-| expired   | diasRestantes < 0                               |
-| near      | 0 <= diasRestantes <= threshold                 |
-| ok        | diasRestantes > threshold                       |
+```
+POST   /auth/login
+GET    /products
+POST   /products
+PATCH  /products/:id
+POST   /products/:id/remove
+```
 
-`threshold` = valor do input configurável.
+Estrutura de produto esperada:
 
-## Modo Claro / Escuro
+```json
+{
+  "id": 101,
+  "code": "L001",
+  "barcode": "7891000000001",
+  "name": "Leite Integral 1L",
+  "group": "Laticínios",
+  "brand": "Fazenda Boa",
+  "expiryDate": "2025-12-01",
+  "removed": false
+}
+```
 
-- Utiliza atributo `data-theme="dark|light"` na tag `<html>`.
-- Variáveis CSS para ambos os temas.
-- Persistência em `localStorage` (`cv_theme`).
+## Lógica de Status
 
-## Responsividade
+| Status  | Condição                               |
+|---------|-----------------------------------------|
+| removed | `produto.removed === true`              |
+| expired | `diasRestantes < 0`                     |
+| near    | `0 <= diasRestantes <= threshold`       |
+| ok      | `diasRestantes > threshold`             |
 
-- Tabela com rolagem horizontal.
-- Para < 600px alterna automaticamente para cards (pode ser revertido manualmente).
-- Cards mostram informações essenciais e ações.
+`threshold` vem do input “Dias p/ considerar 'Próximo de Vencer'”.
 
-## Scanner
+## Melhorias Futuras (Sugestões)
 
-- Tenta `BarcodeDetector`.
-- Fallback QuaggaJS (CDN).
-- Torch (lanterna) se suportado (Chrome Android).
-- Troca de câmera se múltiplas lentes.
-
-## Edição Inline
-
-- Botão “Editar” substitui valor por `<input type="date">` + OK / X.
-- Persistência chama `api.updateProduct`.
-- Mock atualiza cache local.
-
-## Inclusão de Produto
-
-- Botão “＋ Produto” abre modal.
-- Validação simples (campos obrigatórios).
-- Em API real, devolve ID gerado.
-
-## Possíveis Melhorias Futuras
-
-- Paginação / virtualização.
-- Validação de EAN-13 (dígito verificador).
-- Upload CSV / importação em lote.
-- Notificações de lote próximo ao vencer (service worker + PWA).
-- Multi-edição de validade.
-- Histórico de alterações.
+- Paginação/virtualização (muitos produtos).
+- Exportar CSV/Excel.
+- Edição em massa de validade.
+- Avisos (toast) para produtos próximos do vencimento.
+- PWA + notificações.
+- Modo inventário por múltiplos escaneamentos.
+- Validação EAN-13 (dígito verificador).
+- Backend real (Node/Express + banco).
 
 ## Licença
 
-Uso livre para estudos e adaptação.
+Livre para estudos e adaptações.

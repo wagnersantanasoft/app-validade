@@ -1,20 +1,14 @@
 /**
- * theme.js
- * Controle de tema claro/escuro com persistência.
+ * theme.js - alternância claro/escuro
  */
-
 const THEME_KEY = "cv_theme";
 const root = document.documentElement;
-const preferred = localStorage.getItem(THEME_KEY) || "dark";
-root.setAttribute("data-theme", preferred);
+const stored = localStorage.getItem(THEME_KEY);
+if (stored) root.setAttribute("data-theme", stored);
 
 export function toggleTheme() {
-  const current = root.getAttribute("data-theme");
+  const current = root.getAttribute("data-theme") || "dark";
   const next = current === "dark" ? "light" : "dark";
   root.setAttribute("data-theme", next);
   localStorage.setItem(THEME_KEY, next);
-}
-
-export function getTheme() {
-  return root.getAttribute("data-theme");
 }
