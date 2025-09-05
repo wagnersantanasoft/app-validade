@@ -41,7 +41,7 @@
         </div>
         <div class="topbar-actions">
           <button id="toggle-view" class="btn small" title="Alternar visualização (Tabela / Cartões)">🗂</button>
-          <button id="scan-btn" class="btn small" title="Ler código de barras e filtrar produto">🔍 Ler Código</button>
+            <button id="scan-btn" class="btn small" title="Ler código de barras e filtrar produto">🔍 Ler Código</button>
           <button id="theme-toggle" class="btn small" title="Alternar tema claro/escuro">🌓</button>
           <button id="add-product-btn" class="btn small primary" title="Adicionar produto">＋ Produto</button>
           <button id="refresh-btn" class="btn small" title="Recarregar produtos">⟳ Atualizar</button>
@@ -119,70 +119,27 @@
     </section>
   </div>
 
-  <!-- Scanner Overlay -->
-  <div id="scanner-overlay" class="modal hidden" role="dialog" aria-modal="true" style="background:rgba(0,0,0,.8);">
-    <div class="modal-inner" style="max-width:700px;">
+  <!-- Scanner Overlay (adaptado para Quagga2 com video direto) -->
+  <div id="scanner-overlay" class="modal hidden" role="dialog" aria-modal="true" style="background:rgba(0,0,0,.85);">
+    <div class="modal-inner" style="max-width:520px;">
       <div class="modal-header">
         <strong>Leitura de Código de Barras</strong>
         <button id="close-scanner" class="btn small danger">✕</button>
       </div>
-      <div id="scanner-area" style="position:relative;">
-        <div id="barcode-scanner" style="width:100%;aspect-ratio:4/3;background:#000;overflow:hidden;border:1px solid var(--c-border);border-radius:var(--radius);"></div>
-      </div>
+
+      <video id="scanner-video" autoplay playsinline style="width:100%;aspect-ratio:4/3;background:#000;border:1px solid var(--c-border);border-radius:var(--radius);object-fit:cover;"></video>
+
       <p id="scanner-status" class="muted" style="font-size:.7rem;margin:.6rem 0 0;">
-        Iniciando...
+        Preparando câmera...
       </p>
+
       <div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap;">
         <input id="manual-barcode" placeholder="(Opcional) Digite/cole código" style="flex:1;padding:.55rem .6rem;font-size:.75rem;border:1px solid var(--c-border);border-radius:6px;background:var(--c-bg-soft);color:var(--c-text);" />
         <button id="apply-barcode" class="btn small primary">Usar Código</button>
       </div>
       <small class="muted" style="display:block;margin-top:.5rem;line-height:1.3;">
-        Aponte a câmera para o código de barras. Ao detectar, a busca será preenchida.
-        Se não detectar, digite manualmente e clique em "Usar Código".
+        Aponte a câmera para o código de barras. Ao detectar, a busca será preenchida automaticamente.
       </small>
-    </div>
-  </div>
-
-  <!-- Modal Adicionar Produto -->
-  <div id="product-modal" class="modal hidden" role="dialog" aria-modal="true">
-    <div class="modal-inner">
-      <div class="modal-header">
-        <strong id="modal-title">Novo Produto</strong>
-        <button id="close-modal" class="btn small danger">✕</button>
-      </div>
-      <form id="product-form" autocomplete="off">
-        <div class="form-grid">
-          <label>
-            Código
-            <input type="text" name="code" id="p-code" required />
-          </label>
-          <label>
-            Código de Barras
-            <input type="text" name="barcode" id="p-barcode" />
-          </label>
-          <label>
-            Nome do Produto
-            <input type="text" name="name" id="p-name" required />
-          </label>
-          <label>
-            Grupo
-            <input type="text" name="group" id="p-group" required />
-          </label>
-          <label>
-            Marca
-            <input type="text" name="brand" id="p-brand" required />
-          </label>
-            <label>
-            Validade
-            <input type="date" name="expiryDate" id="p-expiryDate" required />
-          </label>
-        </div>
-        <div class="modal-actions">
-          <button type="submit" class="btn primary">Salvar</button>
-          <button type="button" id="cancel-modal" class="btn">Cancelar</button>
-        </div>
-        <p id="product-error" class="error-msg" hidden></p>
-      </form>
     </div>
   </div>
 
@@ -218,8 +175,9 @@
     </div>
   </template>
 
-  <!-- Quagga (scanner) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js" integrity="sha512-7A72KW5wGmoCXQDGIW+fc3IpRk0xXIb5ic7mjFml+XMXGxEWLFUPmIcdlOF1WReHBXWKf6CARlHMn1bl75h1xQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- Quagga2 (mesma lib do seu exemplo) -->
+  <script src="https://unpkg.com/@ericblade/quagga2@1.2.6/dist/quagga.min.js"></script>
+
   <script type="module" src="js/theme.js"></script>
   <script type="module" src="js/scanner.js"></script>
   <script type="module" src="js/app.js"></script>

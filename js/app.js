@@ -1,12 +1,15 @@
 /**
- * app.js - integra UI, filtros, CRUD e scanner (Quagga simples).
+ * app.js (somente trechos alterados na parte do scanner; restante permanece igual à versão anterior)
+ * - Substituído simpleScanner por scanner (novo baseado no seu código).
  */
+
 import { auth } from "./auth.js";
 import { productsService } from "./products.js";
 import { api } from "./api.js";
 import { toggleTheme } from "./theme.js";
-import { simpleScanner } from "./scanner.js";
+import { scanner } from "./scanner.js";
 
+/* (Mantidos todos os elementos e variáveis iguais) */
 const els = {
   loginView: document.getElementById("login-view"),
   dashboardView: document.getElementById("dashboard-view"),
@@ -31,7 +34,6 @@ const els = {
   tableView: document.getElementById("table-view"),
   cardsView: document.getElementById("cards-view"),
 
-  // Scanner
   scanBtn: document.getElementById("scan-btn"),
   scannerOverlay: document.getElementById("scanner-overlay"),
   closeScanner: document.getElementById("close-scanner"),
@@ -39,7 +41,6 @@ const els = {
   manualBarcode: document.getElementById("manual-barcode"),
   applyBarcode: document.getElementById("apply-barcode"),
 
-  // Tema e produtos
   themeToggle: document.getElementById("theme-toggle"),
   addProductBtn: document.getElementById("add-product-btn"),
   productModal: document.getElementById("product-modal"),
@@ -63,18 +64,16 @@ function init() {
   else showLogin();
 }
 
-/* Eventos */
 function bindEvents() {
+  // Igual à versão anterior para login/filtros/tema/CRUD...
   els.loginForm.addEventListener("submit", onLoginSubmit);
   els.logoutBtn.addEventListener("click", () => { auth.logout(); showLogin(); });
   els.refreshBtn.addEventListener("click", () => loadAndRender(true));
-
   els.groupFilter.addEventListener("change", renderProducts);
   els.brandFilter.addEventListener("change", renderProducts);
   els.searchFilter.addEventListener("input", debounce(renderProducts, 250));
   els.thresholdDays.addEventListener("change", renderProducts);
   els.showRemoved.addEventListener("change", renderProducts);
-
   els.segBtns.forEach(btn => {
     btn.addEventListener("click", () => {
       els.segBtns.forEach(b => b.classList.remove("active"));
@@ -84,47 +83,59 @@ function bindEvents() {
     });
   });
 
-  // Scanner
-  els.scanBtn.addEventListener("click", openScanner);
-  els.closeScanner.addEventListener("click", closeScanner);
-  els.applyBarcode.addEventListener("click", () => {
-    const val = els.manualBarcode.value.trim();
-    if (val) {
-      els.searchFilter.value = val;
-      closeScanner();
-      renderProducts();
+  // SCANNER (Novo)
+  els.scanBtn.addEventListener("click", async () => {
+    openScannerOverlay();
+    els.manualBarcode.value = "";
+    els.scannerStatus.textContent = "Preparando câmera...";
+    try {
+      await scanner.start();
+    } catch (err) {
+      toast("Falha ao iniciar câmera: " + (err.message || err), true);
+      closeScannerOverlay();
     }
   });
 
-  simpleScanner.onStatus(msg => {
+  els.closeScanner.addEventListener("click", () => {
+    scanner.stop();
+    closeScannerOverlay();
+  });
+
+  els.applyBarcode.addEventListener("click", () => {
+    const val = els.manualBarcode.value.trim();
+    if (!val) return;
+    els.searchFilter.value = val;
+    closeScannerOverlay();
+    renderProducts();
+  });
+
+  scanner.onStatus(msg => {
     if (els.scannerStatus) els.scannerStatus.textContent = msg;
   });
-  simpleScanner.onError(err => {
-    toast("Erro câmera: " + (err.message || err), true);
-    closeScanner();
+  scanner.onError(err => {
+    toast("Erro scanner: " + (err.message || err), true);
+    closeScannerOverlay();
   });
-  simpleScanner.onDetected(code => {
+  scanner.onDetected(code => {
     els.searchFilter.value = code;
-    // Se modal de novo produto estiver aberto, também preenche
+    // Se modal de novo produto estiver aberto, preenche também campo de código de barras
     const formBarcode = document.getElementById("p-barcode");
     if (formBarcode && !els.productModal.classList.contains("hidden")) {
       formBarcode.value = code;
     }
     toast("Código detectado: " + code);
     renderProducts();
-    closeScanner();
+    closeScannerOverlay(); // fechar após leitura
   });
 
-  // Tema
+  // Tema / Produto
   els.themeToggle.addEventListener("click", () => toggleTheme());
-
-  // Modal
   els.addProductBtn.addEventListener("click", openProductModal);
   els.closeModal.addEventListener("click", closeProductModal);
   els.cancelModal.addEventListener("click", closeProductModal);
   els.productForm.addEventListener("submit", onProductSubmit);
 
-  // View
+  // Toggle view
   els.toggleViewBtn.addEventListener("click", () => {
     usingCards = !usingCards;
     applyViewMode();
@@ -143,30 +154,27 @@ function bindEvents() {
 
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") {
-      if (!els.scannerOverlay.classList.contains("hidden")) closeScanner();
+      if (!els.scannerOverlay.classList.contains("hidden")) {
+        scanner.stop();
+        closeScannerOverlay();
+      }
       if (!els.productModal.classList.contains("hidden")) closeProductModal();
     }
   });
 }
 
-/* Scanner */
-async function openScanner() {
+/* Overlay scanner */
+function openScannerOverlay() {
   els.scannerOverlay.classList.remove("hidden");
-  els.manualBarcode.value = "";
-  els.scannerStatus.textContent = "Inicializando...";
-  try {
-    await simpleScanner.start();
-  } catch (err) {
-    toast("Não foi possível iniciar a câmera.", true);
-    closeScanner();
-  }
 }
-function closeScanner() {
-  simpleScanner.stop();
+function closeScannerOverlay() {
+  scanner.stop();
   els.scannerOverlay.classList.add("hidden");
 }
 
-/* Login */
+/* ---------- (Restante: login, load/render, CRUD e utilidades iguais à última versão que você já tem) ---------- */
+/* Abaixo seguem novamente para manter o arquivo completo */
+
 async function onLoginSubmit(e) {
   e.preventDefault();
   const username = els.username.value.trim();
@@ -199,9 +207,7 @@ function enterApp() {
   els.userBadge.textContent = s?.user?.name || s?.user?.username || "?";
   loadAndRender(true);
 }
-
-/* Carregamento / Render */
-async function loadAndRender(force = false) {
+async function loadAndRender(force=false) {
   setTableLoading();
   try {
     const products = await productsService.load(force);
@@ -212,18 +218,16 @@ async function loadAndRender(force = false) {
   }
 }
 function populateFilters(products) {
-  // Grupos
-  const groups = [...new Set(products.map(p => p.group))].sort();
+  const groups = [...new Set(products.map(p=>p.group))].sort();
   const gCurrent = els.groupFilter.value;
   els.groupFilter.innerHTML = "<option value=''>Todos</option>" +
-    groups.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
+    groups.map(g=>`<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
   if (groups.includes(gCurrent)) els.groupFilter.value = gCurrent;
 
-  // Marcas
-  const brands = [...new Set(products.map(p => p.brand))].sort();
+  const brands = [...new Set(products.map(p=>p.brand))].sort();
   const bCurrent = els.brandFilter.value;
   els.brandFilter.innerHTML = "<option value=''>Todas</option>" +
-    brands.map(b => `<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join("");
+    brands.map(b=>`<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join("");
   if (brands.includes(bCurrent)) els.brandFilter.value = bCurrent;
 }
 function getFilterOptions() {
@@ -232,33 +236,27 @@ function getFilterOptions() {
     brand: els.brandFilter.value,
     search: els.searchFilter.value.trim(),
     status: currentStatusFilter,
-    thresholdDays: parseInt(els.thresholdDays.value, 10) || 15,
+    thresholdDays: parseInt(els.thresholdDays.value,10) || 15,
     showRemoved: els.showRemoved.checked
   };
 }
 function renderProducts() {
   const products = productsService.cache.products;
-  if (!products.length) {
-    setTableEmpty();
-    return;
-  }
+  if (!products.length) { setTableEmpty(); return; }
   const opts = getFilterOptions();
   const filtered = productsService
     .filter(products, opts)
-    .sort((a,b) => a.expiryDate.localeCompare(b.expiryDate));
-
+    .sort((a,b)=>a.expiryDate.localeCompare(b.expiryDate));
   if (usingCards) renderCards(filtered, opts);
   else renderTable(filtered, opts);
 }
-
-/* Tabela */
 function renderTable(filtered, opts) {
   if (!filtered.length) {
     els.tbody.innerHTML = `<tr><td colspan="9" class="center muted">Nenhum produto encontrado.</td></tr>`;
     return;
   }
   const frag = document.createDocumentFragment();
-  filtered.forEach(p => {
+  filtered.forEach(p=>{
     const { days, status } = productsService.computeStatus(p, opts.thresholdDays);
     frag.appendChild(renderRow(p, days, status));
   });
@@ -279,33 +277,27 @@ function renderRow(product, days, status) {
   const daysCell = tr.querySelector(".col-days");
   daysCell.textContent = days;
   if (days < 0) daysCell.classList.add("negative");
-  else if (days <= parseInt(els.thresholdDays.value, 10)) daysCell.classList.add("warning");
+  else if (days <= parseInt(els.thresholdDays.value,10)) daysCell.classList.add("warning");
 
   tr.querySelector(".col-status").appendChild(buildBadge(status));
-
   const actionCell = tr.querySelector(".col-action");
   actionCell.appendChild(buildEditButton(product, expiryCell));
   if (status === "expired" && !product.removed) {
     actionCell.appendChild(buildRemoveButton(product.id));
   } else if (status === "removed") {
     const span = document.createElement("span");
-    span.className = "muted";
-    span.style.fontSize = ".55rem";
-    span.textContent = "Removido";
-    actionCell.appendChild(span);
-    tr.style.opacity = .55;
+    span.className="muted"; span.style.fontSize=".55rem"; span.textContent="Removido";
+    actionCell.appendChild(span); tr.style.opacity=.55;
   }
   return tr;
 }
-
-/* Cards */
 function renderCards(filtered, opts) {
   if (!filtered.length) {
     els.cardsContainer.innerHTML = `<div class="muted" style="grid-column:1/-1;font-size:.75rem;">Nenhum produto encontrado.</div>`;
     return;
   }
   const frag = document.createDocumentFragment();
-  filtered.forEach(p => {
+  filtered.forEach(p=>{
     const { days, status } = productsService.computeStatus(p, opts.thresholdDays);
     frag.appendChild(renderCard(p, days, status));
   });
@@ -323,27 +315,22 @@ function renderCard(product, days, status) {
   card.querySelector(".pc-expiry").textContent = formatDateBR(product.expiryDate);
   const daysEl = card.querySelector(".pc-days");
   daysEl.textContent = days;
-  if (days < 0) daysEl.style.color = "#ff6d6d";
-  else if (days <= parseInt(els.thresholdDays.value, 10)) daysEl.style.color = "var(--c-warn)";
-
+  if (days < 0) daysEl.style.color="#ff6d6d";
+  else if (days <= parseInt(els.thresholdDays.value,10)) daysEl.style.color="var(--c-warn)";
   const actions = card.querySelector(".pc-actions");
   actions.appendChild(buildEditButton(product, card.querySelector(".pc-expiry"), true));
   if (status === "expired" && !product.removed) {
     actions.appendChild(buildRemoveButton(product.id, true));
   } else if (status === "removed") {
     const span = document.createElement("span");
-    span.className = "muted";
-    span.textContent = "Removido";
-    actions.appendChild(span);
-    card.style.opacity = .55;
+    span.className="muted"; span.textContent="Removido";
+    actions.appendChild(span); card.style.opacity=.55;
   }
   return card;
 }
-
-/* Edição validade */
-function buildEditButton(product, expiryDisplayEl, compact = false) {
+function buildEditButton(product, expiryDisplayEl, compact=false) {
   const btn = document.createElement("button");
-  btn.className = "btn " + (compact ? "small" : "small");
+  btn.className = "btn " + (compact?"small":"small");
   btn.textContent = "Editar";
   btn.addEventListener("click", () => startInlineEdit(product, expiryDisplayEl));
   return btn;
@@ -352,74 +339,62 @@ function startInlineEdit(product, expiryDisplayEl) {
   if (editingRowId && editingRowId !== product.id) return;
   if (editingRowId === product.id) return;
   editingRowId = product.id;
-
   const original = product.expiryDate;
   const wrap = document.createElement("div");
   wrap.className = "edit-inline";
   const input = document.createElement("input");
-  input.type = "date";
-  input.value = original;
+  input.type="date"; input.value=original;
   const save = document.createElement("button");
-  save.className = "btn small primary";
-  save.textContent = "OK";
+  save.className="btn small primary"; save.textContent="OK";
   const cancel = document.createElement("button");
-  cancel.className = "btn small";
-  cancel.textContent = "X";
-
-  expiryDisplayEl.innerHTML = "";
-  wrap.appendChild(input);
-  wrap.appendChild(save);
-  wrap.appendChild(cancel);
+  cancel.className="btn small"; cancel.textContent="X";
+  expiryDisplayEl.innerHTML="";
+  wrap.appendChild(input); wrap.appendChild(save); wrap.appendChild(cancel);
   expiryDisplayEl.appendChild(wrap);
   input.focus();
-
-  save.addEventListener("click", async () => {
+  save.addEventListener("click", async ()=>{
     const newDate = input.value;
-    if (!newDate) return;
+    if(!newDate) return;
     save.disabled = true;
     try {
-      await api.updateProduct(product.id, { expiryDate: newDate }, auth.getToken());
-      productsService.updateLocal(product.id, { expiryDate: newDate });
-      editingRowId = null;
+      await api.updateProduct(product.id,{ expiryDate:newDate }, auth.getToken());
+      productsService.updateLocal(product.id,{ expiryDate:newDate });
+      editingRowId=null;
       expiryDisplayEl.textContent = formatDateBR(newDate);
       renderProducts();
-    } catch (err) {
-      alert("Falha ao atualizar: " + err.message);
-      save.disabled = false;
+    } catch(err){
+      alert("Falha ao atualizar: "+err.message);
+      save.disabled=false;
     }
   });
-  cancel.addEventListener("click", () => {
-    editingRowId = null;
+  cancel.addEventListener("click", ()=>{
+    editingRowId=null;
     expiryDisplayEl.textContent = formatDateBR(original);
   });
 }
-
-/* Remover */
-function buildRemoveButton(id, compact = false) {
+function buildRemoveButton(id, compact=false) {
   const btn = document.createElement("button");
-  btn.className = "btn danger " + (compact ? "small" : "small");
-  btn.textContent = "Remover";
+  btn.className="btn danger "+(compact?"small":"small");
+  btn.textContent="Remover";
   btn.addEventListener("click", () => onRemove(id, btn));
   return btn;
 }
 async function onRemove(id, btn) {
-  btn.disabled = true;
+  btn.disabled=true;
   try {
     await api.removeProduct(id, auth.getToken());
-    const prod = productsService.cache.products.find(p => p.id === id);
+    const prod = productsService.cache.products.find(p=>p.id===id);
     if (prod) prod.removed = true;
     renderProducts();
-  } catch (err) {
-    alert("Falha ao remover: " + err.message);
-    btn.disabled = false;
+  } catch(err){
+    alert("Falha ao remover: "+err.message);
+    btn.disabled=false;
   }
 }
-
-/* Modal Novo Produto */
 function openProductModal() {
   els.productForm.reset();
-  els.productError.hidden = true;
-  els.modalTitle.textContent = "Novo Produto";
+  els.productError.hidden=true;
+  els.modalTitle.textContent="Novo Produto";
   els.productModal.classList.remove("hidden");
   document.getElementById("p-code").focus();
 }
@@ -447,79 +422,74 @@ async function onProductSubmit(e) {
     closeProductModal();
     populateFilters(productsService.cache.products);
     renderProducts();
-  } catch (err) {
+  } catch(err){
     showProductError(err.message || "Erro ao adicionar produto");
   } finally {
     setProductFormDisabled(false);
   }
 }
-function showProductError(msg) {
-  els.productError.textContent = msg;
-  els.productError.hidden = false;
-}
-function setProductFormDisabled(disabled) {
-  [...els.productForm.elements].forEach(el => el.disabled = disabled);
-}
+function showProductError(msg){ els.productError.textContent=msg; els.productError.hidden=false; }
+function setProductFormDisabled(disabled){ [...els.productForm.elements].forEach(el=>el.disabled=disabled); }
 
-/* Utils */
 function buildBadge(status) {
   const span = document.createElement("span");
   span.classList.add("badge");
-  switch (status) {
-    case "ok": span.textContent = "OK"; span.classList.add("ok"); break;
-    case "near": span.textContent = "PRÓXIMO"; span.classList.add("near"); break;
-    case "expired": span.textContent = "VENCIDO"; span.classList.add("expired"); break;
-    case "removed": span.textContent = "REMOVIDO"; span.classList.add("removed"); break;
+  switch(status){
+    case "ok": span.textContent="OK"; span.classList.add("ok"); break;
+    case "near": span.textContent="PRÓXIMO"; span.classList.add("near"); break;
+    case "expired": span.textContent="VENCIDO"; span.classList.add("expired"); break;
+    case "removed": span.textContent="REMOVIDO"; span.classList.add("removed"); break;
     default: span.textContent = status.toUpperCase();
   }
   return span;
 }
-function setTableLoading() {
+function setTableLoading(){
   els.tbody.innerHTML = `<tr><td colspan="9" class="center muted">Carregando...</td></tr>`;
-  els.cardsContainer.innerHTML = "";
+  els.cardsContainer.innerHTML="";
 }
-function setTableError(msg) {
+function setTableError(msg){
   els.tbody.innerHTML = `<tr><td colspan="9" class="center" style="color:#ff9e9e;">Erro: ${escapeHtml(msg)}</td></tr>`;
   els.cardsContainer.innerHTML = `<div style="color:#ff6d6d;">Erro: ${escapeHtml(msg)}</div>`;
 }
-function setTableEmpty() {
+function setTableEmpty(){
   els.tbody.innerHTML = `<tr><td colspan="9" class="center muted">Nenhum produto.</td></tr>`;
   els.cardsContainer.innerHTML = `<div class="muted">Nenhum produto.</div>`;
 }
-function formatDateBR(iso) {
-  if (!iso) return "-";
+function formatDateBR(iso){
+  if(!iso) return "-";
   const [y,m,d] = iso.split("-");
   return `${d}/${m}/${y}`;
 }
-function escapeHtml(str) {
+function escapeHtml(str){
   return str.replace(/[&<>"']/g, c => ({
     "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
   }[c]));
 }
-function debounce(fn, wait=300) {
-  let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), wait); };
+function debounce(fn, wait=300){
+  let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args),wait); };
 }
-function applyViewMode() {
-  if (usingCards) {
+function applyViewMode(){
+  if(usingCards){
     els.tableView.classList.add("hidden");
     els.cardsView.classList.remove("hidden");
-    els.toggleViewBtn.textContent = "📋";
-    els.toggleViewBtn.title = "Modo tabela";
+    els.toggleViewBtn.textContent="📋";
+    els.toggleViewBtn.title="Modo tabela";
   } else {
     els.tableView.classList.remove("hidden");
     els.cardsView.classList.add("hidden");
-    els.toggleViewBtn.textContent = "🗂";
-    els.toggleViewBtn.title = "Modo cartões";
+    els.toggleViewBtn.textContent="🗂";
+    els.toggleViewBtn.title="Modo cartões";
   }
 }
-function toast(msg, error=false) {
+function toast(msg, error=false){
   const div = document.createElement("div");
-  div.textContent = msg;
-  Object.assign(div.style, {
+  div.textContent=msg;
+  Object.assign(div.style,{
     position:"fixed",bottom:"16px",left:"50%",transform:"translateX(-50%)",
-    background: error ? "#b3261e" : "#2563eb",
+    background: error?"#b3261e":"#2563eb",
     color:"#fff",padding:"8px 14px",fontSize:"12px",
-    borderRadius:"6px",boxShadow:"0 4px 12px -4px rgba(0,0,0,.4)",zIndex:3000
+    borderRadius:"6px",boxShadow:"0 4px 12px -4px rgba(0,0,0,.4)",
+    zIndex:3000
   });
   document.body.appendChild(div);
   setTimeout(()=>div.remove(),2600);
