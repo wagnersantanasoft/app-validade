@@ -1,7 +1,8 @@
 /**
  * app.js (atualizado)
- * - Toggle de visualização movido para o cabeçalho
- * - Botão para solicitar permissão de câmera antes de abrir o scanner
+ * - Removido botão de "Permitir Câmera"
+ * - Permissão solicitada automaticamente ao clicar em "Ler Código"
+ * - Se o usuário negar, mostra aviso e não abre o overlay
  */
 
 import { auth } from "./auth.js";
@@ -48,20 +49,20 @@ const els = {
   productForm: document.getElementById("product-form"),
   productError: document.getElementById("product-error"),
   modalTitle: document.getElementById("modal-title"),
-  toggleViewBtn: document.getElementById("toggle-view"),
-  requestCameraBtn: document.getElementById("request-camera-btn")
+  toggleViewBtn: document.getElementById("toggle-view")
 };
 
 let currentStatusFilter = "all";
 let usingCards = false;
 let editingRowId = null;
-const CAM_PERMISSION_KEY = "cv_cam_permission"; // flag localStorage
+
+// Armazena se já falhou uma vez (para não mostrar múltiplos toasts repetidamente)
+let lastCameraError = null;
 
 init();
 
 function init() {
   bindEvents();
-  restoreCameraPermissionFlag();
   if (auth.isAuthenticated()) {
     enterApp();
   } else {
@@ -88,15 +89,11 @@ function bindEvents() {
     });
   });
 
-  // Scanner & câmera
-  els.scanBtn.addEventListener("click", () => {
-    // Se ainda não pediu permissão (em alguns browsers), pedimos agora
-    if (!hasCameraPermissionFlag()) {
-      requestCameraPermission(true); // abre scanner após conceder
-    } else {
-      openScanner();
-    }
+  // Scanner — agora pedimos permissão internamente
+  els.scanBtn.addEventListener("click", async () => {
+    await attemptOpenScanner();
   });
+
   els.closeScanner.addEventListener("click", closeScanner);
   scanner.onResult(code => {
     els.searchFilter.value = code;
@@ -108,8 +105,6 @@ function bindEvents() {
   scanner.onMultipleCameras(hasMulti => els.switchCamera.hidden = !hasMulti);
   els.toggleTorch.addEventListener("click", () => scanner.toggleTorch());
   els.switchCamera.addEventListener("click", () => scanner.switchCamera());
-
-  els.requestCameraBtn.addEventListener("click", () => requestCameraPermission(false));
 
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") {
@@ -134,7 +129,6 @@ function bindEvents() {
     renderProducts();
   });
 
-  // Ajuste inicial (auto card em telas pequenas)
   if (window.innerWidth < 600) usingCards = true;
   applyViewMode();
   window.addEventListener("resize", debounce(() => {
@@ -146,45 +140,37 @@ function bindEvents() {
   }, 250));
 }
 
-function restoreCameraPermissionFlag() {
-  if (hasCameraPermissionFlag()) {
-    // Já foi concedido anteriormente (melhoria: checar novamente estado real se desejar)
-    els.requestCameraBtn.classList.add("hidden");
-  }
-}
-
-function hasCameraPermissionFlag() {
-  return localStorage.getItem(CAM_PERMISSION_KEY) === "granted";
-}
-
-async function requestCameraPermission(openScannerAfter = false) {
+/**
+ * Tenta abrir o scanner. Se a permissão ainda não foi concedida,
+ * o próprio getUserMedia dentro do scanner irá disparar a prompt.
+ * Se der erro (negado ou bloqueado), exibimos orientação.
+ */
+async function attemptOpenScanner() {
+  // Mostramos overlay imediatamente para feedback
+  els.scannerOverlay.classList.remove("hidden");
+  els.scannerStatus.textContent = "Solicitando acesso à câmera...";
   try {
-    els.requestCameraBtn.disabled = true;
-    els.requestCameraBtn.textContent = "Solicitando...";
-    // Solicita somente para obter permissão; para não travar scanner depois
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment" }
-    });
-    // Fecha imediatamente
-    stream.getTracks().forEach(t => t.stop());
-    localStorage.setItem(CAM_PERMISSION_KEY, "granted");
-    els.requestCameraBtn.classList.add("hidden");
-    if (openScannerAfter) {
-      openScanner();
-    } else {
-      // Feedback rápido
-      flashMessage("Permissão concedida para usar a câmera.");
-    }
+    // O scanner.start() já chama getUserMedia internamente
+    await scanner.start();
   } catch (err) {
-    console.warn("Permissão de câmera negada:", err);
-    flashMessage("Não foi possível obter permissão da câmera.", true);
-    els.requestCameraBtn.disabled = false;
-    els.requestCameraBtn.textContent = "📷 Permitir Câmera";
+    // Segurança extra (caso start lance)
+    handleCameraError(err);
+    closeScanner();
   }
+  // Caso o usuário negue, scanner.start() internamente define status de erro; tratamos via observer de status também
 }
 
-function flashMessage(msg, error = false) {
-  // Simples toast temporário
+/* Feedback de erro de câmera */
+function handleCameraError(err) {
+  if (err?.name === "NotAllowedError" || err?.name === "SecurityError") {
+    showToast("Acesso à câmera negado. Verifique as permissões do navegador.", true);
+  } else {
+    showToast("Não foi possível acessar a câmera.", true);
+  }
+  lastCameraError = err;
+}
+
+function showToast(msg, error = false) {
   const div = document.createElement("div");
   div.textContent = msg;
   div.style.position = "fixed";
@@ -270,9 +256,7 @@ function populateGroupFilter(products) {
   const current = els.groupFilter.value;
   els.groupFilter.innerHTML = "<option value=''>Todos</option>" +
     groups.map(g => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
-  if (groups.includes(current)) {
-    els.groupFilter.value = current;
-  }
+  if (groups.includes(current)) els.groupFilter.value = current;
 }
 
 function getFilterOptions() {
@@ -292,7 +276,8 @@ function renderProducts() {
     return;
   }
   const opts = getFilterOptions();
-  const filtered = productsService.filter(products, opts)
+  const filtered = productsService
+    .filter(products, opts)
     .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
 
   if (usingCards) {
@@ -318,7 +303,6 @@ function renderTable(filtered, opts) {
 
 function renderRow(product, days, status) {
   const clone = els.rowTemplate.content.firstElementChild.cloneNode(true);
-
   clone.querySelector(".col-code").textContent = product.code;
   clone.querySelector(".col-barcode").textContent = product.barcode || "-";
   clone.querySelector(".col-name").textContent = product.name;
@@ -347,7 +331,6 @@ function renderRow(product, days, status) {
     actionCell.appendChild(span);
     clone.style.opacity = .55;
   }
-
   return clone;
 }
 
@@ -368,11 +351,8 @@ function renderCards(filtered, opts) {
 
 function renderCard(product, days, status) {
   const card = els.cardTemplate.content.firstElementChild.cloneNode(true);
-
   card.querySelector(".pc-code").textContent = product.code;
-  const statusHolder = card.querySelector(".pc-status");
-  statusHolder.appendChild(buildBadge(status));
-
+  card.querySelector(".pc-status").appendChild(buildBadge(status));
   card.querySelector(".pc-name").textContent = product.name;
   card.querySelector(".pc-group").textContent = product.group;
   card.querySelector(".pc-barcode").textContent = product.barcode || "-";
@@ -394,11 +374,10 @@ function renderCard(product, days, status) {
     actions.appendChild(span);
     card.style.opacity = .55;
   }
-
   return card;
 }
 
-/* Botões Helpers */
+/* Edição de validade inline */
 function buildEditButton(product, expiryDisplayEl, compact = false) {
   const btn = document.createElement("button");
   btn.className = "btn " + (compact ? "small" : "small");
@@ -408,7 +387,7 @@ function buildEditButton(product, expiryDisplayEl, compact = false) {
   return btn;
 }
 
-function startInlineEdit(product, expiryDisplayEl, btn) {
+function startInlineEdit(product, expiryDisplayEl) {
   if (editingRowId && editingRowId !== product.id) return;
   if (editingRowId === product.id) return;
   editingRowId = product.id;
@@ -416,6 +395,7 @@ function startInlineEdit(product, expiryDisplayEl, btn) {
   const original = product.expiryDate;
   const wrapper = document.createElement("div");
   wrapper.className = "edit-inline";
+
   const input = document.createElement("input");
   input.type = "date";
   input.value = original;
@@ -457,6 +437,7 @@ function startInlineEdit(product, expiryDisplayEl, btn) {
   });
 }
 
+/* Remover (marcar) */
 function buildRemoveButton(id, compact = false) {
   const btn = document.createElement("button");
   btn.className = "btn danger " + (compact ? "small" : "small");
@@ -465,7 +446,6 @@ function buildRemoveButton(id, compact = false) {
   return btn;
 }
 
-/* CRUD Ações */
 async function onRemove(id, btn) {
   btn.disabled = true;
   try {
@@ -576,10 +556,9 @@ function debounce(fn, wait = 300) {
   return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
 }
 
-/* Scanner */
+/* Scanner Overlay */
 function openScanner() {
   els.scannerOverlay.classList.remove("hidden");
-  scanner.start();
 }
 function closeScanner() {
   scanner.stop();
