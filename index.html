@@ -22,7 +22,7 @@
             Senha
             <input type="password" id="password" autocomplete="current-password" required />
           </label>
-          <button type="submit" class="btn primary full">Entrar</button>
+            <button type="submit" class="btn primary full">Entrar</button>
           <p id="login-error" class="error-msg" hidden></p>
         </form>
         <details class="mock-info">
@@ -40,10 +40,13 @@
           <span id="user-badge"></span>
         </div>
         <div class="topbar-actions">
-          <button id="theme-toggle" class="btn small" title="Alternar tema">🌓</button>
+          <button id="toggle-view" class="btn small" title="Alternar visualização (Tabela / Cartões)">🗂</button>
+          <button id="request-camera-btn" class="btn small" title="Permitir uso da câmera para leitura de código de barras">📷 Permitir Câmera</button>
+          <button id="scan-btn" class="btn small" title="Abrir scanner de código de barras">🔍 Ler Código</button>
+          <button id="theme-toggle" class="btn small" title="Alternar tema claro/escuro">🌓</button>
           <button id="add-product-btn" class="btn small primary" title="Adicionar produto">＋ Produto</button>
-          <button id="refresh-btn" class="btn small">⟳ Atualizar</button>
-          <button id="logout-btn" class="btn small danger">Sair</button>
+          <button id="refresh-btn" class="btn small" title="Recarregar produtos">⟳ Atualizar</button>
+          <button id="logout-btn" class="btn small danger" title="Encerrar sessão">Sair</button>
         </div>
       </header>
 
@@ -58,11 +61,7 @@
             </label>
             <label>
               Buscar (nome, código ou cód. barras)
-              <div class="search-flex">
-                <input type="text" id="search-filter" placeholder="Ex: leite, L001, 789..." />
-                <button type="button" id="scan-btn" class="btn small" title="Escanear código de barras">📷</button>
-                <button type="button" id="toggle-view" class="btn small" title="Alternar visualização">🗂</button>
-              </div>
+              <input type="text" id="search-filter" placeholder="Ex: leite, L001, 789..." />
             </label>
             <label>
               Dias p/ considerar 'Próximo de Vencer'
@@ -74,7 +73,7 @@
             </label>
           </div>
 
-          <div class="segmented">
+            <div class="segmented">
             <button data-status="all" class="seg-btn active">Todos</button>
             <button data-status="near" class="seg-btn">Próximo de Vencer</button>
             <button data-status="expired" class="seg-btn">Vencidos</button>
@@ -102,11 +101,9 @@
           </table>
         </section>
 
-        <!-- Card View (mobile alternative) -->
+        <!-- Card View -->
         <section id="cards-view" class="cards-view hidden">
-          <div id="cards-container" class="cards-grid">
-            <!-- Cards gerados dinamicamente -->
-          </div>
+          <div id="cards-container" class="cards-grid"></div>
         </section>
       </main>
 
@@ -150,7 +147,7 @@
             Código
             <input type="text" name="code" id="p-code" required />
           </label>
-            <label>
+          <label>
             Código de Barras
             <input type="text" name="barcode" id="p-barcode" />
           </label>

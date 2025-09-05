@@ -1,6 +1,7 @@
 /**
- * app.js
- * Integra UI, scanner, tema, CRUD local (mock) de produtos.
+ * app.js (atualizado)
+ * - Toggle de visualização movido para o cabeçalho
+ * - Botão para solicitar permissão de câmera antes de abrir o scanner
  */
 
 import { auth } from "./auth.js";
@@ -47,17 +48,20 @@ const els = {
   productForm: document.getElementById("product-form"),
   productError: document.getElementById("product-error"),
   modalTitle: document.getElementById("modal-title"),
-  toggleViewBtn: document.getElementById("toggle-view")
+  toggleViewBtn: document.getElementById("toggle-view"),
+  requestCameraBtn: document.getElementById("request-camera-btn")
 };
 
 let currentStatusFilter = "all";
 let usingCards = false;
 let editingRowId = null;
+const CAM_PERMISSION_KEY = "cv_cam_permission"; // flag localStorage
 
 init();
 
 function init() {
   bindEvents();
+  restoreCameraPermissionFlag();
   if (auth.isAuthenticated()) {
     enterApp();
   } else {
@@ -84,8 +88,15 @@ function bindEvents() {
     });
   });
 
-  // Scanner
-  els.scanBtn.addEventListener("click", openScanner);
+  // Scanner & câmera
+  els.scanBtn.addEventListener("click", () => {
+    // Se ainda não pediu permissão (em alguns browsers), pedimos agora
+    if (!hasCameraPermissionFlag()) {
+      requestCameraPermission(true); // abre scanner após conceder
+    } else {
+      openScanner();
+    }
+  });
   els.closeScanner.addEventListener("click", closeScanner);
   scanner.onResult(code => {
     els.searchFilter.value = code;
@@ -97,6 +108,9 @@ function bindEvents() {
   scanner.onMultipleCameras(hasMulti => els.switchCamera.hidden = !hasMulti);
   els.toggleTorch.addEventListener("click", () => scanner.toggleTorch());
   els.switchCamera.addEventListener("click", () => scanner.switchCamera());
+
+  els.requestCameraBtn.addEventListener("click", () => requestCameraPermission(false));
+
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") {
       if (!els.scannerOverlay.classList.contains("hidden")) closeScanner();
@@ -120,10 +134,8 @@ function bindEvents() {
     renderProducts();
   });
 
-  // Ajuste inicial baseado em largura
-  if (window.innerWidth < 600) {
-    usingCards = true;
-  }
+  // Ajuste inicial (auto card em telas pequenas)
+  if (window.innerWidth < 600) usingCards = true;
   applyViewMode();
   window.addEventListener("resize", debounce(() => {
     if (window.innerWidth < 560 && !usingCards) {
@@ -131,7 +143,63 @@ function bindEvents() {
       applyViewMode();
       renderProducts();
     }
-  }, 300));
+  }, 250));
+}
+
+function restoreCameraPermissionFlag() {
+  if (hasCameraPermissionFlag()) {
+    // Já foi concedido anteriormente (melhoria: checar novamente estado real se desejar)
+    els.requestCameraBtn.classList.add("hidden");
+  }
+}
+
+function hasCameraPermissionFlag() {
+  return localStorage.getItem(CAM_PERMISSION_KEY) === "granted";
+}
+
+async function requestCameraPermission(openScannerAfter = false) {
+  try {
+    els.requestCameraBtn.disabled = true;
+    els.requestCameraBtn.textContent = "Solicitando...";
+    // Solicita somente para obter permissão; para não travar scanner depois
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" }
+    });
+    // Fecha imediatamente
+    stream.getTracks().forEach(t => t.stop());
+    localStorage.setItem(CAM_PERMISSION_KEY, "granted");
+    els.requestCameraBtn.classList.add("hidden");
+    if (openScannerAfter) {
+      openScanner();
+    } else {
+      // Feedback rápido
+      flashMessage("Permissão concedida para usar a câmera.");
+    }
+  } catch (err) {
+    console.warn("Permissão de câmera negada:", err);
+    flashMessage("Não foi possível obter permissão da câmera.", true);
+    els.requestCameraBtn.disabled = false;
+    els.requestCameraBtn.textContent = "📷 Permitir Câmera";
+  }
+}
+
+function flashMessage(msg, error = false) {
+  // Simples toast temporário
+  const div = document.createElement("div");
+  div.textContent = msg;
+  div.style.position = "fixed";
+  div.style.bottom = "16px";
+  div.style.left = "50%";
+  div.style.transform = "translateX(-50%)";
+  div.style.background = error ? "#b3261e" : "#2563eb";
+  div.style.color = "#fff";
+  div.style.padding = "8px 14px";
+  div.style.fontSize = "12px";
+  div.style.borderRadius = "6px";
+  div.style.boxShadow = "0 4px 12px -4px rgba(0,0,0,.4)";
+  div.style.zIndex = 3000;
+  document.body.appendChild(div);
+  setTimeout(() => div.remove(), 2800);
 }
 
 function applyViewMode() {
@@ -341,7 +409,7 @@ function buildEditButton(product, expiryDisplayEl, compact = false) {
 }
 
 function startInlineEdit(product, expiryDisplayEl, btn) {
-  if (editingRowId && editingRowId !== product.id) return; // permitir um por vez
+  if (editingRowId && editingRowId !== product.id) return;
   if (editingRowId === product.id) return;
   editingRowId = product.id;
 
@@ -351,8 +419,6 @@ function startInlineEdit(product, expiryDisplayEl, btn) {
   const input = document.createElement("input");
   input.type = "date";
   input.value = original;
-  input.min = "2000-01-01";
-  input.max = "2100-12-31";
 
   const save = document.createElement("button");
   save.className = "btn small primary";
@@ -363,11 +429,10 @@ function startInlineEdit(product, expiryDisplayEl, btn) {
   cancel.textContent = "X";
 
   expiryDisplayEl.innerHTML = "";
-  expiryDisplayEl.appendChild(wrapper);
   wrapper.appendChild(input);
   wrapper.appendChild(save);
   wrapper.appendChild(cancel);
-
+  expiryDisplayEl.appendChild(wrapper);
   input.focus();
 
   save.addEventListener("click", async () => {
@@ -379,7 +444,7 @@ function startInlineEdit(product, expiryDisplayEl, btn) {
       productsService.updateLocal(product.id, { expiryDate: newDate });
       editingRowId = null;
       expiryDisplayEl.textContent = formatDateBR(newDate);
-      renderProducts(); // atualiza status/dias
+      renderProducts();
     } catch (err) {
       alert("Falha ao atualizar: " + err.message);
       save.disabled = false;
@@ -465,29 +530,16 @@ function setProductFormDisabled(disabled) {
   [...els.productForm.elements].forEach(el => el.disabled = disabled);
 }
 
-/* ========== Utilidades de UI ========== */
+/* Utilidades UI */
 function buildBadge(status) {
   const span = document.createElement("span");
   span.classList.add("badge");
   switch (status) {
-    case "ok":
-      span.textContent = "OK";
-      span.classList.add("ok");
-      break;
-    case "near":
-      span.textContent = "PRÓXIMO";
-      span.classList.add("near");
-      break;
-    case "expired":
-      span.textContent = "VENCIDO";
-      span.classList.add("expired");
-      break;
-    case "removed":
-      span.textContent = "REMOVIDO";
-      span.classList.add("removed");
-      break;
-    default:
-      span.textContent = status.toUpperCase();
+    case "ok": span.textContent = "OK"; span.classList.add("ok"); break;
+    case "near": span.textContent = "PRÓXIMO"; span.classList.add("near"); break;
+    case "expired": span.textContent = "VENCIDO"; span.classList.add("expired"); break;
+    case "removed": span.textContent = "REMOVIDO"; span.classList.add("removed"); break;
+    default: span.textContent = status.toUpperCase();
   }
   return span;
 }
@@ -521,13 +573,10 @@ function escapeHtml(str) {
 
 function debounce(fn, wait = 300) {
   let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), wait);
-  };
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
 }
 
-/* ========== Scanner ========== */
+/* Scanner */
 function openScanner() {
   els.scannerOverlay.classList.remove("hidden");
   scanner.start();
