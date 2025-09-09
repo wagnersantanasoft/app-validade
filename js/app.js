@@ -1,6 +1,5 @@
 /**
- * app.js (somente trechos alterados na parte do scanner; restante permanece igual à versão anterior)
- * - Substituído simpleScanner por scanner (novo baseado no seu código).
+ * app.js (mantido quase todo original; ajustes no modo de visualização e detecção no login)
  */
 
 import { auth } from "./auth.js";
@@ -9,7 +8,7 @@ import { api } from "./api.js";
 import { toggleTheme } from "./theme.js";
 import { scanner } from "./scanner.js";
 
-/* (Mantidos todos os elementos e variáveis iguais) */
+/* Elementos */
 const els = {
   loginView: document.getElementById("login-view"),
   dashboardView: document.getElementById("dashboard-view"),
@@ -53,7 +52,8 @@ const els = {
 };
 
 let currentStatusFilter = "all";
-let usingCards = false;
+/* Visualização atual: true = Cartões, false = Tabela; null = ainda não definido */
+let usingCards = null;
 let editingRowId = null;
 
 init();
@@ -65,7 +65,7 @@ function init() {
 }
 
 function bindEvents() {
-  // Igual à versão anterior para login/filtros/tema/CRUD...
+  // Login/filtros/tema/CRUD
   els.loginForm.addEventListener("submit", onLoginSubmit);
   els.logoutBtn.addEventListener("click", () => { auth.logout(); showLogin(); });
   els.refreshBtn.addEventListener("click", () => loadAndRender(true));
@@ -83,7 +83,7 @@ function bindEvents() {
     });
   });
 
-  // SCANNER (Novo)
+  // SCANNER
   els.scanBtn.addEventListener("click", async () => {
     openScannerOverlay();
     els.manualBarcode.value = "";
@@ -118,14 +118,13 @@ function bindEvents() {
   });
   scanner.onDetected(code => {
     els.searchFilter.value = code;
-    // Se modal de novo produto estiver aberto, preenche também campo de código de barras
     const formBarcode = document.getElementById("p-barcode");
     if (formBarcode && !els.productModal.classList.contains("hidden")) {
       formBarcode.value = code;
     }
     toast("Código detectado: " + code);
     renderProducts();
-    closeScannerOverlay(); // fechar após leitura
+    closeScannerOverlay();
   });
 
   // Tema / Produto
@@ -135,17 +134,19 @@ function bindEvents() {
   els.cancelModal.addEventListener("click", closeProductModal);
   els.productForm.addEventListener("submit", onProductSubmit);
 
-  // Toggle view
+  // Alternância de visualização via botão (com símbolo)
   els.toggleViewBtn.addEventListener("click", () => {
+    // Se ainda não definido (antes do login), define padrão e alterna
+    if (usingCards === null) usingCards = detectDefaultView();
     usingCards = !usingCards;
     applyViewMode();
     renderProducts();
   });
 
-  if (window.innerWidth < 600) usingCards = true;
-  applyViewMode();
+  // Responsivo: se estreitar muito (<560px) e estiver em tabela, força Cartões
   window.addEventListener("resize", debounce(() => {
-    if (window.innerWidth < 560 && !usingCards) {
+    if (usingCards === null) return; // ainda não estamos no dashboard
+    if (window.innerWidth < 560 && usingCards === false) {
       usingCards = true;
       applyViewMode();
       renderProducts();
@@ -163,6 +164,11 @@ function bindEvents() {
   });
 }
 
+/* Define visualização padrão ao entrar (login): Desktop => Tabela; Mobile => Cartões */
+function detectDefaultView() {
+  return window.innerWidth >= 960 ? false /* Tabela */ : true /* Cartões */;
+}
+
 /* Overlay scanner */
 function openScannerOverlay() {
   els.scannerOverlay.classList.remove("hidden");
@@ -172,9 +178,7 @@ function closeScannerOverlay() {
   els.scannerOverlay.classList.add("hidden");
 }
 
-/* ---------- (Restante: login, load/render, CRUD e utilidades iguais à última versão que você já tem) ---------- */
-/* Abaixo seguem novamente para manter o arquivo completo */
-
+/* Fluxo de login/dashboard */
 async function onLoginSubmit(e) {
   e.preventDefault();
   const username = els.username.value.trim();
@@ -205,8 +209,15 @@ function enterApp() {
   els.dashboardView.classList.add("active");
   const s = auth.getSession();
   els.userBadge.textContent = s?.user?.name || s?.user?.username || "?";
+
+  // Define visualização padrão com base no dispositivo/tamanho no momento do login
+  usingCards = detectDefaultView();
+  applyViewMode();
+
   loadAndRender(true);
 }
+
+/* Carregamento e renderização */
 async function loadAndRender(force=false) {
   setTableLoading();
   try {
@@ -317,6 +328,7 @@ function renderCard(product, days, status) {
   daysEl.textContent = days;
   if (days < 0) daysEl.style.color="#ff6d6d";
   else if (days <= parseInt(els.thresholdDays.value,10)) daysEl.style.color="var(--c-warn)";
+
   const actions = card.querySelector(".pc-actions");
   actions.appendChild(buildEditButton(product, card.querySelector(".pc-expiry"), true));
   if (status === "expired" && !product.removed) {
@@ -328,6 +340,8 @@ function renderCard(product, days, status) {
   }
   return card;
 }
+
+/* Botões/Ações */
 function buildEditButton(product, expiryDisplayEl, compact=false) {
   const btn = document.createElement("button");
   btn.className = "btn " + (compact?"small":"small");
@@ -391,6 +405,8 @@ async function onRemove(id, btn) {
     btn.disabled=false;
   }
 }
+
+/* Modal Produto */
 function openProductModal() {
   els.productForm.reset();
   els.productError.hidden=true;
@@ -410,6 +426,9 @@ async function onProductSubmit(e) {
     group: fd.get("group").trim(),
     brand: fd.get("brand").trim(),
     expiryDate: fd.get("expiryDate")
+    // Campos price/unit existem no modal e podem ser enviados ao backend caso você queira ativá-los:
+    // price: Number(fd.get("price") || 0),
+    // unit: (fd.get("unit") || "").trim()
   };
   if (!payload.code || !payload.name || !payload.group || !payload.brand || !payload.expiryDate) {
     showProductError("Preencha todos os campos obrigatórios.");
@@ -431,6 +450,7 @@ async function onProductSubmit(e) {
 function showProductError(msg){ els.productError.textContent=msg; els.productError.hidden=false; }
 function setProductFormDisabled(disabled){ [...els.productForm.elements].forEach(el=>el.disabled=disabled); }
 
+/* Utilitários */
 function buildBadge(status) {
   const span = document.createElement("span");
   span.classList.add("badge");
@@ -461,23 +481,24 @@ function formatDateBR(iso){
   return `${d}/${m}/${y}`;
 }
 function escapeHtml(str){
-  return str.replace(/[&<>"']/g, c => ({
+  return str.replace(/[&<>\"']/g, c => ({
     "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"
   }[c]));
 }
 function debounce(fn, wait=300){
   let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args),wait); };
 }
+/* Aplica ícone e visibilidade com base em usingCards */
 function applyViewMode(){
   if(usingCards){
     els.tableView.classList.add("hidden");
     els.cardsView.classList.remove("hidden");
-    els.toggleViewBtn.textContent="📋";
+    els.toggleViewBtn.textContent="📋"; // indica que o próximo clique leva para Tabela
     els.toggleViewBtn.title="Modo tabela";
   } else {
     els.tableView.classList.remove("hidden");
     els.cardsView.classList.add("hidden");
-    els.toggleViewBtn.textContent="🗂";
+    els.toggleViewBtn.textContent="🗂"; // indica que o próximo clique leva para Cartões
     els.toggleViewBtn.title="Modo cartões";
   }
 }

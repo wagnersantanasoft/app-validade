@@ -133,6 +133,8 @@ const mockApi = (() => {
         group: data.group.trim(),
         brand: data.brand.trim(),
         expiryDate: data.expiryDate,
+        price: Number(data.price) || 0,
+        unit: (data.unit || "").trim(),
         removed: false
       };
       PRODUCTS.push(prod);

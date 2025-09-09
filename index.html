@@ -41,10 +41,10 @@
         </div>
         <div class="topbar-actions">
           <button id="toggle-view" class="btn small" title="Alternar visualização (Tabela / Cartões)">🗂</button>
-            <button id="scan-btn" class="btn small" title="Ler código de barras e filtrar produto">🔍 Ler Código</button>
+          <button id="scan-btn" class="btn small" title="Ler código de barras e filtrar produto">🔍 Ler Código</button>
           <button id="theme-toggle" class="btn small" title="Alternar tema claro/escuro">🌓</button>
           <button id="add-product-btn" class="btn small primary" title="Adicionar produto">＋ Produto</button>
-          <button id="refresh-btn" class="btn small" title="Recarregar produtos">⟳ Atualizar</button>
+          <button id="refresh-btn" class="btn small" title="Recarregar produtos">↳ Atualizar</button>
           <button id="logout-btn" class="btn small danger" title="Encerrar sessão">Sair</button>
         </div>
       </header>
@@ -119,6 +119,57 @@
     </section>
   </div>
 
+  <!-- Modal de Produto (inclusão/edição) -->
+  <div id="product-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-inner">
+      <div class="modal-header">
+        <strong id="modal-title">Novo Produto</strong>
+        <button id="close-modal" class="btn small danger">✕</button>
+      </div>
+      <form id="product-form">
+        <div class="form-grid">
+          <label>
+            Código
+            <input id="p-code" name="code" required placeholder="Ex: L001" />
+          </label>
+          <label>
+            Cód. Barras
+            <input id="p-barcode" name="barcode" placeholder="Ex: 789..." />
+          </label>
+          <label class="full">
+            Nome do Produto
+            <input id="p-name" name="name" required placeholder="Ex: Leite Integral 1L" />
+          </label>
+          <label>
+            Grupo
+            <input id="p-group" name="group" required placeholder="Ex: Laticínios" />
+          </label>
+          <label>
+            Marca
+            <input id="p-brand" name="brand" required placeholder="Ex: Fazenda Boa" />
+          </label>
+          <label>
+            Validade
+            <input type="date" id="p-expiry" name="expiryDate" required />
+          </label>
+          <label>
+            Preço
+            <input type="number" id="p-price" name="price" inputmode="decimal" step="0.01" min="0" placeholder="Ex: 12,50" />
+          </label>
+          <label>
+            Unidade de medida
+            <input id="p-unit" name="unit" placeholder="Ex: L, kg, un" />
+          </label>
+        </div>
+        <p id="product-error" class="error-msg" hidden></p>
+        <div class="modal-actions">
+          <button type="button" id="cancel-modal" class="btn">Cancelar</button>
+          <button type="submit" class="btn primary">Salvar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- Scanner Overlay (adaptado para Quagga2 com video direto) -->
   <div id="scanner-overlay" class="modal hidden" role="dialog" aria-modal="true" style="background:rgba(0,0,0,.85);">
     <div class="modal-inner" style="max-width:520px;">
@@ -170,6 +221,8 @@
         <div><dt>Barras:</dt><dd class="pc-barcode"></dd></div>
         <div><dt>Validade:</dt><dd class="pc-expiry"></dd></div>
         <div><dt>Dias:</dt><dd class="pc-days"></dd></div>
+        <div><dt>Preço:</dt><dd class="pc-price"></dd></div>
+        <div><dt>Unid.:</dt><dd class="pc-unit"></dd></div>
       </dl>
       <div class="pc-actions"></div>
     </div>
