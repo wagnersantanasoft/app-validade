@@ -1,5 +1,7 @@
 /**
- * app.js (mantido quase todo original; ajustes no modo de visualização e detecção no login)
+ * app.js
+ * Ajustado para preencher preço e unidade (se existirem) também na visão de cartões.
+ * Demais lógicas mantidas.
  */
 
 import { auth } from "./auth.js";
@@ -52,7 +54,6 @@ const els = {
 };
 
 let currentStatusFilter = "all";
-/* Visualização atual: true = Cartões, false = Tabela; null = ainda não definido */
 let usingCards = null;
 let editingRowId = null;
 
@@ -134,18 +135,17 @@ function bindEvents() {
   els.cancelModal.addEventListener("click", closeProductModal);
   els.productForm.addEventListener("submit", onProductSubmit);
 
-  // Alternância de visualização via botão (com símbolo)
+  // Alternância de visualização
   els.toggleViewBtn.addEventListener("click", () => {
-    // Se ainda não definido (antes do login), define padrão e alterna
     if (usingCards === null) usingCards = detectDefaultView();
     usingCards = !usingCards;
     applyViewMode();
     renderProducts();
   });
 
-  // Responsivo: se estreitar muito (<560px) e estiver em tabela, força Cartões
+  // Responsivo
   window.addEventListener("resize", debounce(() => {
-    if (usingCards === null) return; // ainda não estamos no dashboard
+    if (usingCards === null) return;
     if (window.innerWidth < 560 && usingCards === false) {
       usingCards = true;
       applyViewMode();
@@ -164,12 +164,10 @@ function bindEvents() {
   });
 }
 
-/* Define visualização padrão ao entrar (login): Desktop => Tabela; Mobile => Cartões */
 function detectDefaultView() {
-  return window.innerWidth >= 960 ? false /* Tabela */ : true /* Cartões */;
+  return window.innerWidth >= 960 ? false : true;
 }
 
-/* Overlay scanner */
 function openScannerOverlay() {
   els.scannerOverlay.classList.remove("hidden");
 }
@@ -178,7 +176,7 @@ function closeScannerOverlay() {
   els.scannerOverlay.classList.add("hidden");
 }
 
-/* Fluxo de login/dashboard */
+/* Login */
 async function onLoginSubmit(e) {
   e.preventDefault();
   const username = els.username.value.trim();
@@ -209,15 +207,12 @@ function enterApp() {
   els.dashboardView.classList.add("active");
   const s = auth.getSession();
   els.userBadge.textContent = s?.user?.name || s?.user?.username || "?";
-
-  // Define visualização padrão com base no dispositivo/tamanho no momento do login
   usingCards = detectDefaultView();
   applyViewMode();
-
   loadAndRender(true);
 }
 
-/* Carregamento e renderização */
+/* Carregamento/render */
 async function loadAndRender(force=false) {
   setTableLoading();
   try {
@@ -229,13 +224,13 @@ async function loadAndRender(force=false) {
   }
 }
 function populateFilters(products) {
-  const groups = [...new Set(products.map(p=>p.group))].sort();
+  const groups = [...new Set(products.map(p=>p.group))].filter(Boolean).sort();
   const gCurrent = els.groupFilter.value;
   els.groupFilter.innerHTML = "<option value=''>Todos</option>" +
     groups.map(g=>`<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
   if (groups.includes(gCurrent)) els.groupFilter.value = gCurrent;
 
-  const brands = [...new Set(products.map(p=>p.brand))].sort();
+  const brands = [...new Set(products.map(p=>p.brand))].filter(Boolean).sort();
   const bCurrent = els.brandFilter.value;
   els.brandFilter.innerHTML = "<option value=''>Todas</option>" +
     brands.map(b=>`<option value="${escapeHtml(b)}">${escapeHtml(b)}</option>`).join("");
@@ -279,8 +274,8 @@ function renderRow(product, days, status) {
   tr.querySelector(".col-code").textContent = product.code;
   tr.querySelector(".col-barcode").textContent = product.barcode || "-";
   tr.querySelector(".col-name").textContent = product.name;
-  tr.querySelector(".col-group").textContent = product.group;
-  tr.querySelector(".col-brand").textContent = product.brand;
+  tr.querySelector(".col-group").textContent = product.group || "-";
+  tr.querySelector(".col-brand").textContent = product.brand || "-";
 
   const expiryCell = tr.querySelector(".col-expiry");
   expiryCell.textContent = formatDateBR(product.expiryDate);
@@ -320,14 +315,20 @@ function renderCard(product, days, status) {
   card.querySelector(".pc-code").textContent = product.code;
   card.querySelector(".pc-status").appendChild(buildBadge(status));
   card.querySelector(".pc-name").textContent = product.name;
-  card.querySelector(".pc-group").textContent = product.group;
-  card.querySelector(".pc-brand").textContent = product.brand;
+  card.querySelector(".pc-group").textContent = product.group || "-";
+  card.querySelector(".pc-brand").textContent = product.brand || "-";
   card.querySelector(".pc-barcode").textContent = product.barcode || "-";
   card.querySelector(".pc-expiry").textContent = formatDateBR(product.expiryDate);
   const daysEl = card.querySelector(".pc-days");
   daysEl.textContent = days;
   if (days < 0) daysEl.style.color="#ff6d6d";
   else if (days <= parseInt(els.thresholdDays.value,10)) daysEl.style.color="var(--c-warn)";
+
+  // Preenche preço e unidade se existirem
+  const priceEl = card.querySelector(".pc-price");
+  if (priceEl) priceEl.textContent = product.price ? formatPrice(product.price) : "-";
+  const unitEl = card.querySelector(".pc-unit");
+  if (unitEl) unitEl.textContent = product.unit || "-";
 
   const actions = card.querySelector(".pc-actions");
   actions.appendChild(buildEditButton(product, card.querySelector(".pc-expiry"), true));
@@ -425,10 +426,9 @@ async function onProductSubmit(e) {
     name: fd.get("name").trim(),
     group: fd.get("group").trim(),
     brand: fd.get("brand").trim(),
-    expiryDate: fd.get("expiryDate")
-    // Campos price/unit existem no modal e podem ser enviados ao backend caso você queira ativá-los:
-    // price: Number(fd.get("price") || 0),
-    // unit: (fd.get("unit") || "").trim()
+    expiryDate: fd.get("expiryDate"),
+    price: Number(fd.get("price") || 0),
+    unit: (fd.get("unit") || "").trim()
   };
   if (!payload.code || !payload.name || !payload.group || !payload.brand || !payload.expiryDate) {
     showProductError("Preencha todos os campos obrigatórios.");
@@ -488,17 +488,16 @@ function escapeHtml(str){
 function debounce(fn, wait=300){
   let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args),wait); };
 }
-/* Aplica ícone e visibilidade com base em usingCards */
 function applyViewMode(){
   if(usingCards){
     els.tableView.classList.add("hidden");
     els.cardsView.classList.remove("hidden");
-    els.toggleViewBtn.textContent="📋"; // indica que o próximo clique leva para Tabela
+    els.toggleViewBtn.textContent="📋";
     els.toggleViewBtn.title="Modo tabela";
   } else {
     els.tableView.classList.remove("hidden");
     els.cardsView.classList.add("hidden");
-    els.toggleViewBtn.textContent="🗂"; // indica que o próximo clique leva para Cartões
+    els.toggleViewBtn.textContent="🗂";
     els.toggleViewBtn.title="Modo cartões";
   }
 }
@@ -514,4 +513,8 @@ function toast(msg, error=false){
   });
   document.body.appendChild(div);
   setTimeout(()=>div.remove(),2600);
+}
+function formatPrice(v){
+  if (v == null) return "-";
+  return Intl.NumberFormat("pt-BR",{ style:"currency", currency:"BRL"}).format(v);
 }

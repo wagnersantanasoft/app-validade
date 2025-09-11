@@ -13,7 +13,7 @@ async function startCamera() {
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: { ideal: "environment" }, // tenta câmera traseira em mobile
+        facingMode: { ideal: "environment" },
         width: { ideal: 1280 },
         height: { ideal: 720 }
       },
@@ -53,13 +53,10 @@ function captureFrame() {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(preview, 0, 0, w, h);
   statusMsg.textContent = "Frame capturado (canvas disponível).";
-  // Aqui você poderia enviar a imagem a um backend para tentar decodificar código de barras
-  // ou integrar uma lib JS local (ex: jsQR para QR, ou bibliotecas de barcode específicas).
 }
 
 startBtn.addEventListener('click', startCamera);
 stopBtn.addEventListener('click', stopCamera);
 captureBtn.addEventListener('click', captureFrame);
 
-// Boa prática: parar câmera ao sair/navegar
 window.addEventListener('beforeunload', stopCamera);

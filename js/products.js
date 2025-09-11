@@ -1,5 +1,6 @@
 /**
  * products.js - cache, status e filtro incluindo brand.
+ * Mantido, sem necessidade de alterações além do que já existia.
  */
 import { api } from "./api.js";
 import { auth } from "./auth.js";

@@ -1,76 +1,135 @@
 /**
  * api.js
- * Mock com campo 'brand'. Ajuste BASE_URL para backend real.
+ * Ajustado para consumir a API externa em http://localhost:9000/produtos (somente leitura).
+ * As demais operações (add/update/remove) permanecem locais (mock) ou retornam erro se desejar.
+ *
+ * O endpoint /produtos retorna registros como:
+ * {
+ *   "pro_codigo": "6",
+ *   "pro_cod_barra": "7898201805295",
+ *   "pro_nome": "ALL ATACK 1L",
+ *   "pro_validade": "01/09/2025",
+ *   "pro_estoq1": "11",
+ *   "und_nome": "UN",
+ *   "pro_preco1": "155",
+ *   "pro_preco2": "150",
+ *   "gp_descri": "MEDICAMENTOS",
+ *   "mar_descri": ""
+ * }
+ *
+ * Fazemos o mapeamento para o formato interno usado pela aplicação:
+ * {
+ *   id, code, barcode, name, group, brand, expiryDate (YYYY-MM-DD), price, unit, removed:false
+ * }
  */
-const BASE_URL = ""; // ex: "https://suaapi.com"
+
+const EXTERNAL_PRODUCTS_ENDPOINT = "http://localhost:9000/produtos"; // Ajuste se necessário
 
 export const api = {
+  // Login segue mock (não há endpoint informado)
   async login(username, password) {
-    if (BASE_URL) {
-      const res = await fetch(`${BASE_URL}/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type":"application/json" },
-        body: JSON.stringify({ username, password })
-      });
-      if (!res.ok) throw new Error("Credenciais inválidas");
-      return res.json();
-    }
     return mockApi.login(username, password);
   },
-  async getProducts(token) {
-    if (BASE_URL) {
-      const res = await fetch(`${BASE_URL}/products`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("Erro ao buscar produtos");
-      return res.json();
-    }
-    return mockApi.getProducts(token);
-  },
-  async removeProduct(id, token) {
-    if (BASE_URL) {
-      const res = await fetch(`${BASE_URL}/products/${id}/remove`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error("Erro ao remover produto");
-      return res.json();
-    }
-    return mockApi.removeProduct(id, token);
-  },
-  async addProduct(data, token) {
-    if (BASE_URL) {
-      const res = await fetch(`${BASE_URL}/products`, {
-        method: "POST",
+
+  /**
+   * Carrega produtos da API externa e mapeia para o modelo interno.
+   * Se a resposta não for um array, tenta transformar num array.
+   */
+  async getProducts(_token) {
+    try {
+      const res = await fetch(EXTERNAL_PRODUCTS_ENDPOINT, {
         headers: {
-          "Content-Type":"application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(data)
+          "Accept": "application/json"
+        }
       });
-      if (!res.ok) throw new Error("Erro ao adicionar produto");
-      return res.json();
+      if (!res.ok) {
+        throw new Error(`Erro HTTP ${res.status}`);
+      }
+      let data = await res.json();
+
+      // Caso o backend retorne objeto único em vez de array
+      if (!Array.isArray(data)) {
+        data = [data];
+      }
+
+      const mapped = data.map(mapBackendProduct).filter(Boolean);
+      return mapped;
+    } catch (err) {
+      console.error("Falha ao buscar produtos externos, usando mock como fallback:", err);
+      // Fallback opcional ao mock
+      return mockApi.getProducts();
     }
-    return mockApi.addProduct(data, token);
   },
-  async updateProduct(id, data, token) {
-    if (BASE_URL) {
-      const res = await fetch(`${BASE_URL}/products/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type":"application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify(data)
-      });
-      if (!res.ok) throw new Error("Erro ao atualizar produto");
-      return res.json();
-    }
-    return mockApi.updateProduct(id, data, token);
+
+  /**
+   * As operações abaixo não foram especificadas no backend fornecido.
+   * Mantemos comportamento local (mock) para evitar quebrar a UI.
+   * Se quiser bloquear totalmente, pode lançar erro.
+   */
+
+  async removeProduct(id, _token) {
+    // Poderia lançar: throw new Error("Remoção não suportada pela API externa");
+    return mockApi.removeProduct(id);
+  },
+
+  async addProduct(data, _token) {
+    // Poderia lançar: throw new Error("Inclusão não suportada pela API externa");
+    return mockApi.addProduct(data);
+  },
+
+  async updateProduct(id, data, _token) {
+    // Poderia lançar: throw new Error("Atualização não suportada pela API externa");
+    return mockApi.updateProduct(id, data);
   }
 };
 
-/* Mock */
+/**
+ * Converte um registro do backend para o formato interno.
+ */
+function mapBackendProduct(p) {
+  if (!p) return null;
+
+  return {
+    id: safeNumberOrString(p.pro_codigo),
+    code: String(p.pro_codigo || "").trim(),
+    barcode: (p.pro_cod_barra || "").trim(),
+    name: (p.pro_nome || "").trim(),
+    group: (p.gp_descri || "").trim(),
+    brand: (p.mar_descri || "").trim(),
+    expiryDate: parseBackendDate(p.pro_validade), // DD/MM/YYYY -> YYYY-MM-DD
+    price: numberSafe(p.pro_preco1),
+    unit: (p.und_nome || "").trim(),
+    stock: numberSafe(p.pro_estoq1),
+    removed: false
+  };
+}
+
+function parseBackendDate(v) {
+  if (!v) return "";
+  // Esperado DD/MM/YYYY
+  const parts = v.split("/");
+  if (parts.length !== 3) return "";
+  const [dd, mm, yyyy] = parts;
+  if (!dd || !mm || !yyyy) return "";
+  // Normaliza
+  const d = dd.padStart(2, "0");
+  const m = mm.padStart(2, "0");
+  return `${yyyy}-${m}-${d}`; // ISO esperado internamente
+}
+
+function numberSafe(n) {
+  if (n === null || n === undefined || n === "") return 0;
+  const num = Number(String(n).replace(",", "."));
+  return isNaN(num) ? 0 : num;
+}
+
+function safeNumberOrString(v) {
+  const n = Number(v);
+  if (!isNaN(n)) return n;
+  return String(v || "").trim();
+}
+
+/* ================= MOCK (mantido para login e operações locais) ================= */
 const mockApi = (() => {
   const USERS = [
     { id: 1, username: "admin", password: "admin123", name: "Administrador" }
@@ -112,7 +171,7 @@ const mockApi = (() => {
       };
     },
     async getProducts() {
-      await delay(220);
+      await delay(200);
       return PRODUCTS.map(p => ({ ...p }));
     },
     async removeProduct(id) {
