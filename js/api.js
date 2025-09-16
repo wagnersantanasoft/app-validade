@@ -25,7 +25,9 @@ const RAW_HOST = window.location.hostname;
 const HOST = RAW_HOST && RAW_HOST.length ? RAW_HOST : "localhost";
 const API_PORT = 9000;
 const BASE_URL = `http://${HOST}:${API_PORT}`;
-const PRODUCTS_ENDPOINT = `${BASE_URL}/produtos`;
+const PRODUCTS_ENDPOINT = `${BASE_URL}/api/produtos`;
+
+//const PRODUCTS_ENDPOINT = `http://localhost:9000/api/produtos`;
 
 let paginationCapability = "unknown"; // mantido para compatibilidade com productsService
 

@@ -1,4 +1,4 @@
-const URL = 'https://dummyjson.com/products';
+const URL = 'http://localhost:9000/api/produtos';
 
 async function chamarApi() {
   try {
